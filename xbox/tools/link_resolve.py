@@ -189,8 +189,13 @@ def main():
                 '/* cdecl, no arguments read: safe to call for any cdecl prototype. A __thiscall/__stdcall\n'
                 ' * callee would leave the stack unbalanced; the log line says which symbol was hit. */\n'
                 'int re4_unimpl_fn(void)\n{\n'
+                '    /* one log line per distinct call site (map the address with the linker map / llvm-symbolizer) */\n'
+                '    static void* seen[256];\n'
+                '    static unsigned n;\n'
                 '    void* ra = __builtin_return_address(0);\n'
-                '    re4_log_once("unimpl", "UNIMPLEMENTED function called from %p (see port/os/link_stubs.c)\\n", ra);\n'
+                '    for (unsigned i = 0; i < n; i++) if (seen[i] == ra) return 0;\n'
+                '    if (n < 256) seen[n++] = ra;\n'
+                '    re4_log("UNIMPLEMENTED function called from %p (see build/link_stubs.c)\\n", ra);\n'
                 '    return 0;\n}\n')
 
     kinds = {}

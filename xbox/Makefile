@@ -149,5 +149,5 @@ $(RE4_RSP): $(RE4_PROBE_OBJS) $(MODULE_LIBS) $(CURDIR)/tools/link_resolve.py
 	$(VE)sed -n 's/.*undefined symbol: //p' $(CURDIR)/build/probe.log | sort -u > $(CURDIR)/build/undefined.txt
 	$(VE)$(PY) $(CURDIR)/tools/link_resolve.py $(CURDIR)/build/undefined.txt $@ $(RE4_STUBS_C) $(RE4_PROBE_OBJS) $(MODULE_LIBS) $(NXDK_DIR)/lib
 $(RE4_STUBS_C): $(RE4_RSP)
-main.exe: LDFLAGS += @$(RE4_RSP)
+main.exe: LDFLAGS += @$(RE4_RSP) -map:bin/re4.map
 endif

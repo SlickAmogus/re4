@@ -62,7 +62,8 @@ bash xbox/package_xbox.sh <converted> <dist/RE4>           # default.xbe + data/
 
 FTP the folder to the console, launch `default.xbe`, then read `re4.log` from the same folder. At this
 stage the log is the deliverable: it shows how far boot gets and which unimplemented SDK functions are
-hit first (`UNIMPLEMENTED function called from ...`; map the address to a symbol with the linker map).
+hit first (`UNIMPLEMENTED function called from 0x...`; look the address up in `xbox/bin/re4.map`, written
+by every build).
 Nothing is drawn yet and there is no sound.
 
 ## Game data
