@@ -1,6 +1,6 @@
 # CT-05 — TEV / GX usage catalogue
 
-**Status:** open
+**Status:** done — 2026-10-11 (98 cases, 47 setup functions; `xbox/docs/tev-catalogue.md`, `xbox/port/gx/tests/tev_cases.json` + schema + `check_tev_cases.py`). Open points are listed in the two "Appendix" sections of the doc (channel control of lit effects comes from trans_lit.cpp; a few runtime-selected values are `?`-marked).
 
 ## Goal
 

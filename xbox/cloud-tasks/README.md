@@ -22,7 +22,7 @@ the user to attach (a single `files/em/em10.drs` is 10 MB; `files/etc/core.das` 
 | CT-02 | C replacements for the PowerPC asm                | no         | —          |
 | CT-03 | Static module table + build preprocessor + host build bring-up | no | CT-02 |
 | CT-04 | Asset converter (re4conv) with validators          | samples    | —          |
-| CT-05 | TEV / GX usage catalogue                          | no         | —          |
+| CT-05 | TEV / GX usage catalogue                          | no         | — (done)   |
 | CT-06 | DSP-ADPCM decoder + Xbox ADPCM encoder            | no         | —          |
 | CT-07 | CRI Sofdec on x86: compile, stub asm, time it     | one .sfd   | CT-03      |
 | CT-08 | GX display-list interpreter + GX state machine    | one .bin   | CT-05      |
