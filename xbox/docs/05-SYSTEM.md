@@ -101,6 +101,64 @@ tuned for a 485 MHz PPC, so it should fit, but measure early (`CT-07` builds and
 Plan B: transcode `.sfd` offline to Bink/Theora-like formats and use pl_mpeg (MPEG-1) plus a tiny ADX
 decoder, keeping the game's `cSofdec` interface.
 
+### Movies: measurements (CT-07)
+
+**Decision: Plan A.** The game's own CRI stack runs on x86 unchanged except for build-time preparation,
+decodes the retail movies correctly, and costs well under a frame on the host.
+
+Build: the 138 CRI units of `configure.py` `CRI_LIBS` (adx 46, sfd/mwsfd 89, gcci 3) go
+through `xbox/tools/prep_cri.py` before `prep.py`. It removes every MWCC `asm {}` block (codeless levers,
+cache/SPR ops), replaces the real asm kernels with portable C (`port/include/re4port/cri/*.inc`:
+paired-single IDCT `dct_fsri_c.inc`, merge kernels `mpv_umc_c.inc`, BE-SWAR motion compensation
+`mpv_mc_c.inc`, Y8/CbCr + RGBA8 converters `cftyp422_c.inc`; `mftb` -> `OSGetTime`), and fixes endianness
+(MPEG bit readers byte-swap each 32-bit window word, including `mpvabdec_NintraSkipFirst`; the run/level
+`const Uint32` tables read as `Sint16` pairs get their halves swapped; ADX header/block loads go through
+`RE4_BE_*`; the SFD header (SFH) is stored little-endian on disc, so its `SWAP16/32` become identity) plus
+four calls that relied on an argument left in a register (`skip_func(mpv, n)`, `mwPlyChkSupply(mwply)`,
+`ADXB_DecodeHeader(.., len)`, `SFTIM_Init(.., p1)`). All 138 units compile with `nxdk-cc`; all 15 movie
+symbols of `sdk-symbols.md` are defined. Unresolved after the CRI objects: the SDK surface (AR/ARQ, AX/MIX,
+DC*, DVD*, OS threads/ticks, VIWaitForRetrace), MWCC runtime (`__cvt_fp2unsigned`, `__float_nan`), libc,
+and ~20 CRI-internal names referenced only from functions the GameCube linker dead-stripped (closed by
+`link_resolve.py` stubs).
+
+Bench: `xbox/port/tests/sfd/build_sfd_bench.sh` (clang -m32 + lld, host Windows) builds the same prepped
+units with a virtual-clock SDK (`sfd_bench_sdk.c`: fopen DVD, fake ARAM/AX voices advancing at 32 kHz) and
+plays a movie the way `cSofdec` does (`mwPlyInitSfdFx`, `mwPlyGetHdrInf`, `mwPlyCreateSofdec`,
+`mwPlyStartFname`, then per 59.94 Hz field `ADXM_ExecMain` + `mwPlyGetCurFrm`/`mwPlyFxCnvFrmY84C44`/
+`mwPlyRelCurFrm`).
+
+| `Movie/demo0.sfd` (MPEG-1 512x336 29.97 fps, 1839 frames, ADX stereo 32 kHz, 61.4 s) | result |
+|---|---|
+| frames decoded / CRI errors / decode or display skips | 1839 / 0 / 0, end status PLAYEND |
+| luma vs ffmpeg (every frame) | min 62.3 dB, median 66.7 dB (float IDCT rounding only) |
+| ADX PCM vs a reference ADX decoder | left bit-exact, right max error 1 LSB; 61.5 s of PCM |
+| `ADXM_ExecMain` (demux + MPEG-1 + ADX), Ryzen 7 5700X, `-O2 -march=native` | 0.78 ms/frame, worst field 1.9 ms |
+| same, `-O2 -march=pentium3` (x87 + SSE1, no SSE2 in the objects) | 0.82 ms/frame, worst field 1.9 ms |
+| `mwPlyFxCnvFrmY84C44` (texture tiling) | 0.03 ms/frame |
+| ffmpeg reference, `-threads 1`, SIMD / plain C | 0.24 / 0.40 ms/frame |
+
+733 MHz Pentium III estimate: the host runs ~6.3x the clock (4.6 GHz) and roughly 2.5-3.5x the work per
+clock on this kind of integer/x87 code, so scale by 16-22x: **13-18 ms per movie frame, 40-55% of the
+33.4 ms frame budget**, worst field ~30-40 ms (absorbed by the 4-frame pool). That fits: the game does
+nothing else while a movie plays but draw one textured quad. Plan B would not be clearly cheaper (pl_mpeg is
+plain C like ffmpeg's 0.40 ms path, ~2x better at best) and would need transcoding the discs, so it is
+kept only as the fallback if hardware timing disagrees. Headroom if needed: an MMX/SSE1 IDCT and MC in
+the `.inc` kernels (the float IDCT on x87 dominates).
+
+Port obligations found on the way:
+- `include/mwply.h` `MWS_SFD_HDRINF` reads width/height as `s16` at 0x0A/0x0E, the low halves of CRI's
+  `Sint32` fields at 0x08/0x0C on a big-endian CPU; `cSofdec::draw` reads `frm.fno` as `((u16*)&fno)[1]`.
+  Both read the wrong half on x86 and need `#ifdef RE4_PORT` fixes.
+- `MWS_PLY_CPRM_SFD` is 0x24 bytes in `mwply.h` but CRI reads 0x30 (`buffmt` at 0x24): the game relies on
+  its memclr'ed work; keep that zero.
+- The ADX PCM that `ax_rna.c` writes to ARAM is native-endian (little-endian on x86) s16, unlike disc
+  PCM/ADPCM: the AX shim must not byte-swap CRI voices.
+- Missing SDK shims the CRI objects reference: `DVDCancel` (sync), `ARFree`, `MIXSetInput`, `MIXSetPan`,
+  `OSJoinThread` (never called: CRI threads are not created in this game).
+- If Plan B is ever needed: ADX decode is the standard 2-coefficient predictor (c1/c2 from the header
+  cut-off, 18-byte frames of 32 nibbles), but CRI scales by `(scale & 0x1FFF) + 1`; ffmpeg uses `scale`
+  and is off by ~43 dB SNR.
+
 ## 8. Reset, errors, debug
 
 - `OSResetSystem` → return to dashboard (`HalReturnToFirmware`); the soft-reset loop in `main()` with

@@ -186,3 +186,14 @@ int PCread(int, void*, int) { return -1; }
 int PCwrite(int, const void*, int) { return -1; }
 int PClseek(int, int, int) { return -1; }
 }
+
+// CodeWarrior runtime names the MWCC-built CRI libraries reference (src/lib tealeaf on the GameCube).
+extern "C" {
+float __float_nan = __builtin_nanf("");                       // adx_dcd.c returns it for invalid input
+unsigned __cvt_fp2unsigned(float f)                           // adx_tlk.c: float -> u32 with saturation
+{
+    if (!(f > 0.0f)) return 0;
+    if (f >= 4294967296.0f) return 0xFFFFFFFFu;
+    return (unsigned) f;
+}
+}

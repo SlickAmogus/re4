@@ -19,6 +19,10 @@ import importlib.util
 import json
 import os
 import re
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import prep_cri  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SRC = os.path.join(ROOT, 'src')
@@ -68,6 +72,8 @@ def main():
         if ext == '.cpp' and stem not in DEBUG_UNITS:
             lines.append(f'GAME_UNITS += src/game/{name}')
     lines += ['', 'LIB_UNITS := ' + ' '.join(f'src/lib/{u}' for u in LIB_UNITS if os.path.exists(os.path.join(SRC, 'lib', u))), '']
+    # CRI Sofdec/ADX movie stack (CT-07): the 138 units of the DOL's CRI libraries, prepared by prep_cri.py
+    lines += ['LIB_UNITS += ' + ' '.join(u for u in prep_cri.CRI_UNITS if os.path.exists(os.path.join(ROOT, u))), '']
 
     mods = load_modules()
     lines.append('# REL modules: MODULE_<name> = list of <source under src/>:<object name under build/mod/<name>/>')

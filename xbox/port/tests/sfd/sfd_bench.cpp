@@ -20,6 +20,7 @@
 extern "C" {
 extern const char* sfd_bench_path;
 extern long long sfd_bench_dvd_bytes;
+extern long long sfd_bench_pcm_bytes, sfd_bench_pcm_nonzero;
 void sfd_bench_vsync(void);
 void ADXM_ExecMain(void);
 void ADXGC_SetupDvdFs(int mode);
@@ -217,6 +218,8 @@ int main(int argc, char** argv)
     printf("ADXM_ExecMain total %.1f ms, %.3f ms/frame, worst field %.2f ms\n", t_exec, frames ? t_exec / frames : 0.0, t_exec_max);
     printf("Y84C44 conversion %.3f ms/frame\n", frames ? t_cnv / frames : 0.0);
     printf("file bytes read %lld\n", sfd_bench_dvd_bytes);
+    printf("ADX PCM to ARAM %lld bytes (%.1f s at 32 kHz stereo s16), %lld non-zero samples\n", sfd_bench_pcm_bytes,
+           sfd_bench_pcm_bytes / (32000.0 * 2 * 2), sfd_bench_pcm_nonzero);
     mwPlyDestroy(hn);
     return (stat == MWE_PLY_STAT_ERROR || s_errors) ? 1 : 0;
 }

@@ -1,6 +1,9 @@
 # CT-07 — CRI Sofdec on x86
 
-**Status:** open · depends on CT-03
+**Status:** done (2026-10-11) · depends on CT-03 · Plan A chosen, numbers in `05-SYSTEM.md` "Movies:
+measurements". Delivered: `xbox/tools/prep_cri.py`, `port/include/re4port/cri_x86.h` + `cri/*.inc`, bench in
+`xbox/port/tests/sfd/`. Not done here (lead): wiring prep_cri into prep.py and the CRI units into the
+Makefiles (`RE4_MOVIES=1`).
 
 ## Goal
 

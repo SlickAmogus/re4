@@ -6,7 +6,7 @@ Imported by prep.py (the lead wires it in), or run standalone with the same argu
     py -3 xbox/tools/prep_cri.py <src> <out>
 
 Exports
-  CRI_UNITS              the 149 CRI units of the DOL (configure.py CRI_LIBS), as 'src/lib/<name>.c'
+  CRI_UNITS              the 138 CRI units of the DOL (configure.py CRI_LIBS), as 'src/lib/<name>.c'
   CRI_REPLACEMENTS       {unit suffix: [(regex, replacement)]}  -- same format as prep.REPLACEMENTS (re.S)
   CRI_SITE_PATCHES       {unit suffix: [(old, new)]}            -- same format as prep.SITE_PATCHES
   CRI_FUNC_REPLACEMENTS  {unit suffix: {function name: replacement text}} -- whole definitions
@@ -120,7 +120,9 @@ CRI_REPLACEMENTS = {
     'src/lib/adx_tlk.c': [_BE_LOAD],
     'src/lib/cri/mpv_bit.h': [_BSWAP_PTR],
     'src/lib/mpv_emp.c': [_BSWAP_PTR],
-    'src/lib/mpvabdec.c': [_BSWAP_PTR],
+    'src/lib/mpvabdec.c': [_BSWAP_PTR,
+                           # mpvabdec_NintraSkipFirst refills through pointer-to-pointer
+                           (r'\*nbuf_p = \*\(\*ptr_p\)\+\+', r'*nbuf_p = __builtin_bswap32(*(*ptr_p)++)')],
     # the fixed-length run/level groups are `const Uint32` arrays read as Sint16 pairs (mpvabdec.c
     # `((const Sint16 *)mpv->rl_1)[i]`): swap the halves of every initialiser so element order survives
     'src/lib/mpv_vlc.c': [

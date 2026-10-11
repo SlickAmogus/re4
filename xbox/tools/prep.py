@@ -25,6 +25,9 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import prep_cri  # noqa: E402  (CT-07: CRI MWCC asm, cache ops, bit-reader byte order)
+
 # unit path suffix -> [(regex, replacement)], applied with re.S
 REPLACEMENTS = {
     'src/game/trans.cpp': [
@@ -73,6 +76,11 @@ REPLACEMENTS = {
         (r'            struct \{\n                u8 x0;\n                u8 id; // 0x01 display flag bit \(GetSstDispFlag\)\n            \} b;',
          '            struct {   /* prep.py: low byte first over the converted u16 */\n                u8 id;\n                u8 x0;\n            } b;'),
     ],
+    # CRI writes these as native Sint32 (0x08 width, 0x0C height); the game reads the BE low halves
+    'include/mwply.h': [
+        (r'    u8 pad_0\[0xA\];\n    s16 width;   // 0x0A\n    u8 pad_C\[2\];\n    s16 height;  // 0x0E\n',
+         '    u8 pad_0[0x8];   /* prep.py: little-endian, the low halves of the Sint32s come first */\n    s16 width;   // 0x08\n    u8 pad_A[2];\n    s16 height;  // 0x0C\n    u8 pad_E[2];\n'),
+    ],
     'include/math_sub.h': [
         (r'#define fabsf fabsf_libm\n#include <math.h>\n#undef fabsf\n.*?static inline f32 fabsf\(f32 x\)\n\{\n.*?\n\}\n',
          '#include <math.h>   /* prep.py: the GC asm inline fabsf -> compiler builtin */\n'
@@ -97,6 +105,7 @@ SITE_PATCHES = {
     'src/lib/OSTime.c': [('void __OSSetTime(OSTime time) {',
                           'static void __SetTime(OSTime t) { (void) t; }   /* prep.py: was mtspr TBL/TBU */\nvoid __OSSetTime(OSTime time) {')],
     # RGBA bytes read as one u32: "RGB == 0" is the low 24 bits on little-endian (FORMATS.md 2a)
+    'src/game/sofdec.cpp': [('m_frame_no = ((u16*) &m_ap_obj.frm.fno)[1];', 'm_frame_no = ((u16*) &m_ap_obj.frm.fno)[0];   /* prep.py: LE low half */')],
     'src/game/scroll.cpp': [('(col & ~0xFF) == 0', '(col & 0x00FFFFFF) == 0')],
     'src/game/foot_shadow_tbl.cpp': [('static FootShadowTbl Em32_fs_tbl', 'FootShadowTbl Em32_fs_tbl')],
     'src/game/em_sub.cpp': [('static void EmCatchSubSet(', 'void EmCatchSubSet(')],
@@ -282,6 +291,7 @@ def strip_ps_functions(text, pattern=None):
 
 def prep(text, path):
     upath = path.replace('\\', '/')
+    text = prep_cri.cri_prep(text, path)                      # 0. CRI movie stack (CT-07), on the raw text
     text = re.sub(r'\s*asm\("f?r\d+"\)', '', text)            # 1. register pins
     text = sub_empty_asm(text)                               # 2. codeless levers
     for suffix, patches in SITE_PATCHES.items():              # asm-shaped site patches first, before

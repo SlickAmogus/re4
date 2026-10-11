@@ -29,6 +29,8 @@ void VIWaitForRetrace(void) { }
 /* ---- DVD ------------------------------------------------------------------------------------- */
 const char *sfd_bench_path;
 long long sfd_bench_dvd_bytes;
+/* ADX PCM pushed to ARAM (bytes, and how many of the s16 samples are non-zero) */
+long long sfd_bench_pcm_bytes, sfd_bench_pcm_nonzero;
 static FILE *s_files[16];
 static DVDFileInfo *s_pend[16];
 static int s_npend;
@@ -173,6 +175,25 @@ void ARQPostRequest(ARQRequest *req, u32 owner, u32 type, u32 prio, u32 src, u32
 	}
 	if (type == 0) { /* MRAM -> ARAM */
 		if (dst + len <= BENCH_ARAM_SIZE) memcpy(s_aram + dst, (const void *) src, len);
+		{
+			const short *q = (const short *) src;
+			u32 k;
+			static FILE *pcm_f;
+			static int pcm_init;
+			if (!pcm_init) {
+				/* SFD_BENCH_PCM=file: log every transfer as (u32 ARAM dst, u32 len, PCM) */
+				const char *e = getenv("SFD_BENCH_PCM");
+				pcm_init = 1;
+				pcm_f = e ? fopen(e, "wb") : NULL;
+			}
+			if (pcm_f) {
+				fwrite(&dst, 4, 1, pcm_f);
+				fwrite(&len, 4, 1, pcm_f);
+				fwrite(q, 1, len, pcm_f);
+			}
+			sfd_bench_pcm_bytes += len;
+			for (k = 0; k < len / 2; k++) sfd_bench_pcm_nonzero += q[k] != 0;
+		}
 	} else {
 		if (src + len <= BENCH_ARAM_SIZE) memcpy((void *) dst, s_aram + src, len);
 	}

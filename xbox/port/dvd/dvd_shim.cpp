@@ -274,6 +274,19 @@ int DVDCancelAsync(DVDCommandBlock* cb, DVDCBCallback callback)
 
 void DVDCancelAll(void) { s_npending = 0; }
 
+// Blocking cancel (CRI gcci gcCiStopTr polls DVDGetCommandBlockStatus for END or CANCELED afterwards).
+s32 DVDCancel(DVDCommandBlock* cb)
+{
+    for (int i = 0; i < s_npending; i++) {
+        if (s_pending[i].cb == cb) {
+            s_pending[i] = s_pending[--s_npending];
+            break;
+        }
+    }
+    cb->state = DVD_STATE_CANCELED;
+    return 0;
+}
+
 // both discs are merged: the current disc is whichever the game asked for last
 static DVDDiskID s_disk = { {'G', '4', 'B', 'E'}, {'0', '8'}, 0, 0, 0, 0, {0} };
 DVDDiskID* DVDGetCurrentDiskID(void) { return &s_disk; }
@@ -304,8 +317,6 @@ int DVDChangeDiskAsync(DVDCommandBlock* cb, DVDDiskID* id, DVDCBCallback callbac
 
 void* DVDGetFSTLocation(void) { return GC_ADDR(0x817F4000); }   // dvd.cpp only prints it and its size
 
-// CRI ADX's DVD file system hook (movies, CT-07); nothing to set up for file-backed reads.
-void ADXGC_SetupDvdFs(void*) { }
 
 // ---- ARAM ---------------------------------------------------------------------------------------
 struct ARQRequest {                 // include/dolphin/arq.h
@@ -326,6 +337,12 @@ u32 ARAlloc(u32 length)
     s_aram_alloc += (length + 31) & ~31u;
     if (s_aram_alloc > RE4_ARAM_SIZE) re4_log("ARAlloc: out of ARAM (0x%x)\n", s_aram_alloc);
     return a;
+}
+// The SDK's ARAM allocator is a stack: ARFree pops the last block and reports its length.
+u32 ARFree(u32* length)
+{
+    if (length) *length = 0;
+    return s_aram_alloc;
 }
 void ARQInit(void) { }
 void ARQFlushQueue(void) { }

@@ -27,6 +27,8 @@ PY       ?= python3
 # --- include paths (NXDK_CFLAGS so they precede nxdk's; explicit nxdk paths because MSYS2 make
 # does not propagate NXDK_DIR into nxdk-cc's shell) -------------------------------------------
 RE4_INC  = -I$(PORT)/include -I$(COMPAT) -I$(PREP)/include -I$(ROOT)/include -I$(ROOT)/src -I$(ROOT)/src/lib
+# CRI headers: the prepped copy first (mpv_bit.h is patched by prep_cri.py)
+RE4_INC += -I$(PREP)/src/lib/cri -I$(ROOT)/src/lib/cri
 RE4_INC += -I$(NXDK_DIR)/lib -I$(NXDK_DIR)/lib/winapi -I$(NXDK_DIR)/lib/xboxrt/libc_extensions
 RE4_INC += -isystem $(NXDK_DIR)/lib/pdclib/include -I$(NXDK_DIR)/lib/pdclib/platform/xbox/include
 RE4_INC += -I$(NXDK_DIR)/lib/xboxrt/vcruntime -I$(NXDK_DIR)/lib/sdl/SDL2/include
@@ -71,18 +73,30 @@ endif
 ifeq ($(RE4_GAME),1)
 include $(CURDIR)/units.mk
 # Game units are preprocessed into build/prep/ (asm pins stripped) before compiling.
-GAME_PREP = $(addprefix $(PREP)/,$(GAME_UNITS) $(LIB_UNITS))
+GAME_PREP = $(addprefix $(PREP)/,$(GAME_UNITS))
+# SDK C code + the CRI movie stack go into one static library: keeps the link command line under the
+# Windows 32 K limit (the CRI units alone are 138 objects)
+LIB_PREP = $(addprefix $(PREP)/,$(LIB_UNITS))
+LIB_OBJS = $(addsuffix .obj,$(basename $(LIB_PREP)))
+RE4_LIB = $(CURDIR)/build/re4lib.lib
 $(PREP)/%: $(ROOT)/%
 	@mkdir -p $(dir $@)
 	$(PY) $(CURDIR)/tools/prep.py $< $@
 GAME_SRCS = $(GAME_PREP)
 # the headers are prepped too (include/math_sub.h carries an inline asm); one run over the tree
 PREP_HEADERS = $(PREP)/include/.stamp
-$(PREP_HEADERS): $(wildcard $(ROOT)/include/*.h $(ROOT)/include/*/*.h) $(CURDIR)/tools/prep.py
+$(PREP_HEADERS): $(wildcard $(ROOT)/include/*.h $(ROOT)/include/*/*.h) $(CURDIR)/tools/prep.py $(CURDIR)/tools/prep_cri.py
 	$(PY) $(CURDIR)/tools/prep.py --dir $(ROOT)/include $(PREP)/include
 	$(PY) $(CURDIR)/tools/prep.py --dir $(ROOT)/src/lib $(PREP)/src/lib
+	$(PY) $(CURDIR)/tools/prep.py --dir $(ROOT)/src/lib/cri $(PREP)/src/lib/cri
 	@echo prepped > $@
-$(addsuffix .obj,$(basename $(GAME_PREP))): $(PREP_HEADERS)
+$(addsuffix .obj,$(basename $(GAME_PREP))) $(LIB_OBJS): $(PREP_HEADERS)
+$(LIB_OBJS): CFLAGS += $(RE4_CFLAGS)
+$(LIB_OBJS): CXXFLAGS += $(RE4_CXXFLAGS)
+$(RE4_LIB): $(LIB_OBJS)
+	@echo "[ LIB      ] $@"
+	$(VE)$(LIB) -out:'$@' $(LIB_OBJS)
+main.exe: $(RE4_LIB)
 
 # --- REL modules: one prepped copy of each unit per module (shared sources compile once per module),
 # compiled by nxdk's rules, then namespaced by tools/isolate_modules.py into build/mod/<m>.lib ---
@@ -158,11 +172,11 @@ ifeq ($(RE4_GAME),1)
 RE4_RSP     = $(CURDIR)/build/link_aliases.rsp
 RE4_STUBS_C = $(CURDIR)/build/link_stubs.c
 RE4_PROBE_OBJS = $(filter-out %/link_stubs.obj,$(OBJS))
-$(RE4_RSP): $(RE4_PROBE_OBJS) $(MODULE_LIBS) $(CURDIR)/tools/link_resolve.py
+$(RE4_RSP): $(RE4_PROBE_OBJS) $(MODULE_LIBS) $(RE4_LIB) $(CURDIR)/tools/link_resolve.py
 	@echo "[ RESOLVE  ] $@"
-	-$(VE)$(LD) $(NXDK_LDFLAGS) /errorlimit:0 /demangle:no -out:'$(CURDIR)/build/probe.exe' $(RE4_PROBE_OBJS) $(MODULE_LIBS) $(NXDK_DIR)/lib/xboxkrnl/libxboxkrnl.lib > $(CURDIR)/build/probe.log 2>&1
+	-$(VE)$(LD) $(NXDK_LDFLAGS) /errorlimit:0 /demangle:no -out:'$(CURDIR)/build/probe.exe' $(RE4_PROBE_OBJS) $(MODULE_LIBS) $(RE4_LIB) $(NXDK_DIR)/lib/xboxkrnl/libxboxkrnl.lib > $(CURDIR)/build/probe.log 2>&1
 	$(VE)sed -n 's/.*undefined symbol: //p' $(CURDIR)/build/probe.log | sort -u > $(CURDIR)/build/undefined.txt
-	$(VE)$(PY) $(CURDIR)/tools/link_resolve.py $(CURDIR)/build/undefined.txt $@ $(RE4_STUBS_C) $(RE4_PROBE_OBJS) $(MODULE_LIBS) $(NXDK_DIR)/lib
+	$(VE)$(PY) $(CURDIR)/tools/link_resolve.py $(CURDIR)/build/undefined.txt $@ $(RE4_STUBS_C) $(RE4_PROBE_OBJS) $(MODULE_LIBS) $(RE4_LIB) $(NXDK_DIR)/lib
 $(RE4_STUBS_C): $(RE4_RSP)
 main.exe: LDFLAGS += @$(RE4_RSP) -map:bin/re4.map
 endif
