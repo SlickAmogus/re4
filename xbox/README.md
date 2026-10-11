@@ -52,6 +52,19 @@ make -C xbox/port/tests && ./xbox/port/tests/gx         # port unit tests (no ga
 
 Claude Code cloud sessions install the 32-bit toolchain automatically through `.claude/hooks/session-start.sh`.
 
+## Running on an Xbox (boot test)
+
+```sh
+bash xbox/build_xbox.sh RE4_GAME=1                         # bin/default.xbe
+cd xbox/tools && py -3 -m re4conv convert <disc1/files> <disc2/files> <converted>   # ~40 min, once
+bash xbox/package_xbox.sh <converted> <dist/RE4>           # default.xbe + data/files
+```
+
+FTP the folder to the console, launch `default.xbe`, then read `re4.log` from the same folder. At this
+stage the log is the deliverable: it shows how far boot gets and which unimplemented SDK functions are
+hit first (`UNIMPLEMENTED function called from ...`; map the address to a symbol with the linker map).
+Nothing is drawn yet and there is no sound.
+
 ## Game data
 
 You need your own GameCube discs. This port targets the **retail USA release** (two discs). Extract them with

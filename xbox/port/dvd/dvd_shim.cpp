@@ -101,14 +101,32 @@ static void table_init(void)
     re4_log("dvd: %d entries, root %s\n", s_nentries, s_root);
 }
 
-static void full_path(int entry, char* out, unsigned n)
+static int s_disc_index;   // 0 = disc 1, 1 = disc 2 (DVDDiskID.diskNumber of the last disc change)
+
+static void make_path(const char* tree, int entry, char* out, unsigned n)
 {
 #ifdef RE4_XBOX
-    snprintf(out, n, "%s\\files\\%s", s_root, s_entry_path[entry]);
+    snprintf(out, n, "%s\\%s\\%s", s_root, tree, s_entry_path[entry]);
     for (char* p = out; *p; p++) if (*p == '/') *p = '\\';
 #else
-    snprintf(out, n, "%s/files/%s", s_root, s_entry_path[entry]);
+    snprintf(out, n, "%s/%s/%s", s_root, tree, s_entry_path[entry]);
 #endif
+}
+
+// Files present on both discs with different contents (Sscrn.rel, st2_4.rel, ...) are converted twice:
+// files/<path> holds the disc-1 copy, files_disc2/<path> the disc-2 copy (re4conv). While the game is on
+// disc 2, prefer the latter.
+static void full_path(int entry, char* out, unsigned n)
+{
+    if (s_disc_index == 1) {
+        make_path("files_disc2", entry, out, n);
+        int fd = _open(out, O_RDONLY | O_BINARY);
+        if (fd >= 0) {
+            _close(fd);
+            return;
+        }
+    }
+    make_path("files", entry, out, n);
 }
 
 s32 DVDConvertPathToEntrynum(const char* path)
@@ -255,7 +273,11 @@ DVDDiskID* DVDGenerateDiskID(DVDDiskID* id, const char* game, const char* compan
 
 int DVDChangeDiskAsync(DVDCommandBlock* cb, DVDDiskID* id, DVDCBCallback callback)
 {
-    if (id) s_disk.diskNumber = id->diskNumber;
+    if (id) {
+        s_disk.diskNumber = id->diskNumber;
+        s_disc_index = id->diskNumber ? 1 : 0;
+        re4_log("dvd: switched to disc %d\n", s_disc_index + 1);
+    }
     cb->state = DVD_STATE_BUSY;
     cb->callback = callback;
     queue_done(0, cb, 0, 1);
