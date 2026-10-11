@@ -78,6 +78,7 @@ GAME_SRCS = $(GAME_PREP)
 PREP_HEADERS = $(PREP)/include/.stamp
 $(PREP_HEADERS): $(wildcard $(ROOT)/include/*.h $(ROOT)/include/*/*.h) $(CURDIR)/tools/prep.py
 	$(PY) $(CURDIR)/tools/prep.py --dir $(ROOT)/include $(PREP)/include
+	$(PY) $(CURDIR)/tools/prep.py --dir $(ROOT)/src/lib $(PREP)/src/lib
 	@echo prepped > $@
 $(addsuffix .obj,$(basename $(GAME_PREP))): $(PREP_HEADERS)
 
@@ -115,6 +116,7 @@ $(MODULE_ALL_OBJS): CFLAGS += $(RE4_CFLAGS)
 $(MODULE_ALL_OBJS): CXXFLAGS += $(RE4_CXXFLAGS)
 main.exe: $(MODULE_LIBS)
 PORT_SRCS += $(PORT)/os/module_table.cpp $(PORT)/os/alias_thunks.cpp $(CURDIR)/build/link_stubs.c
+PORT_SRCS += $(PORT)/os/os_thread.cpp $(PORT)/os/os_misc.cpp $(PORT)/os/vi_pad.cpp $(PORT)/dvd/dvd_shim.cpp
 else
 PORT_SRCS += $(PORT)/stub_game.cpp
 GAME_SRCS =

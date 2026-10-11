@@ -7,6 +7,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef RE4_XBOX
+#include <sys/mman.h>
+#ifndef MAP_FIXED_NOREPLACE
+#define MAP_FIXED_NOREPLACE 0x100000
+#endif
+#endif
 
 extern "C" {
 
@@ -85,14 +91,27 @@ int re4_mem_init(void)
     re4_mem1_base = (unsigned char*) re4_xbox_alloc_contiguous(RE4_MEM1_SIZE);
     re4_aram_base = (unsigned char*) re4_xbox_alloc_contiguous(RE4_ARAM_SIZE);
 #else
-    re4_mem1_base = (unsigned char*) aligned_alloc(0x1000, RE4_MEM1_SIZE);
+    // 32-bit Linux: map MEM1 exactly where the GameCube had it, so GC_ADDR is the identity and pointers
+    // keep the sign the game tests (`(s32) p < 0` = relocated pointer, >= 0 = file offset).
+    re4_mem1_base = (unsigned char*) mmap((void*) 0x80000000u, RE4_MEM1_SIZE, PROT_READ | PROT_WRITE,
+                                          MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
+    if (re4_mem1_base != (unsigned char*) 0x80000000u) {
+        re4_log("re4_mem_init: could not map MEM1 at 0x80000000 (%p)\n", re4_mem1_base);
+        re4_mem1_base = 0;
+    }
     re4_aram_base = (unsigned char*) aligned_alloc(0x1000, RE4_ARAM_SIZE);
 #endif
+    // Both targets: arena pointers are >= 0x80000000 (Xbox: MmAllocateContiguousMemoryEx returns the
+    // 0x80000000 physical-map window), which the game's relocation checks rely on.
     if (!re4_mem1_base || !re4_aram_base) {
         re4_log("re4_mem_init: arena allocation failed (MEM1 %u, ARAM %u)\n", RE4_MEM1_SIZE, RE4_ARAM_SIZE);
         return -1;
     }
     memset(re4_mem1_base, 0, RE4_MEM1_SIZE);
+    // The IPL's low-memory globals the game reads directly (OSLowMem: debug.cpp, dvd.cpp, main_sub.cpp)
+    *(unsigned*) (re4_mem1_base + 0xF8) = 162000000u;   // busClock (Gekko bus, Hz)
+    *(unsigned*) (re4_mem1_base + 0xFC) = 486000000u;   // cpuClock
+    *(unsigned*) (re4_mem1_base + 0x28) = 0x01800000u;  // physical memory size (24 MB)
     re4_log("re4_mem_init: MEM1 %p ARAM %p\n", re4_mem1_base, re4_aram_base);
     return 0;
 }

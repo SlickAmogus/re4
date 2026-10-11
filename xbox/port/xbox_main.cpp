@@ -22,6 +22,10 @@ extern "C" const char* xbox_get_writedir(void);
 
 #define MAXRAM 0x03FFAFFF
 
+// Converted assets live next to the XBE: D:\datailes\... (D: is the XBE's own directory under nxdk)
+extern "C" const char* re4_data_dir;
+const char* re4_data_dir = "D:\\data";
+
 extern "C" void* re4_xbox_alloc_contiguous(unsigned size)
 {
     return MmAllocateContiguousMemoryEx(size, 0, MAXRAM, 0, PAGE_READWRITE | PAGE_WRITECOMBINE);

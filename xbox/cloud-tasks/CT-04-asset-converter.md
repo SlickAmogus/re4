@@ -1,6 +1,11 @@
 # CT-04 — Asset converter (`re4conv`)
 
-**Status:** open
+**Status:** done (first pass) — 2026-10-11. `py -3 -m re4conv convert|check` (run from `xbox/tools`)
+converts both retail discs (1126 files: 611 converted, 454 partial, 46 passthrough, 15 dropped, 0 failed;
+`check` 1126 ok); unittest suite in `re4conv/tests` passes. Containers, BIN, TPL, FCV/SEQ, ESL/SizeTbl/bgmtbl
+are converted; room blocks, EFF, event packet streams, MDT, fonts and sound banks are passthrough (struct
+families in `re4conv/FORMATS.md`, second pass). 12 malformed FCVs (pl14, wep*) are copied verbatim.
+Progress/notes: `xbox/cloud-tasks/progress/CT-04.md`.
 
 ## Goal
 

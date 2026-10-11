@@ -13,6 +13,7 @@ extern "C" int re4_mem_init(void);
 
 #undef main   // re4_xbox.h renames the game's main(); this is the real process entry point
 
+extern "C" const char* re4_data_dir;
 const char* re4_data_dir = "data";
 int re4_max_frames = -1;
 int re4_headless = 0;

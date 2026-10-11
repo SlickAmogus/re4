@@ -54,6 +54,13 @@ REPLACEMENTS = {
     # The GC header renames libm's fabsf out of the way and defines a static inline asm one; under
     # clang's MSVC mode the static inline merges with pdclib's extern declaration and becomes an
     # exported duplicate. Use the platform fabsf instead.
+    # pointers are no longer in 0x80000000..0x82FFFFFF (heaps live in the port arena, statics in the XBE)
+    'include/main_mem.h': [
+        (r'#define VALID_PTR\(p\) \(\(u32\) \(p\) >= 0x80000000 && \(u32\) \(p\) <= 0x82FFFFFF\)',
+         '#define VALID_PTR(p) RE4_VALID_PTR(p)   /* prep.py */'),
+    ],
+    # MWCC section-placed asm declarations in the SDK's private header (ppc_eabi_init)
+    'src/lib/__os.h': [(r'__declspec\(section "\.init"\) asm [^;]*;\n', '')],
     'include/math_sub.h': [
         (r'#define fabsf fabsf_libm\n#include <math.h>\n#undef fabsf\n.*?static inline f32 fabsf\(f32 x\)\n\{\n.*?\n\}\n',
          '#include <math.h>   /* prep.py: the GC asm inline fabsf -> compiler builtin */\n'
@@ -66,9 +73,27 @@ SITE_PATCHES = {
     'src/game/xml.cpp': [('= strstr(', '= (char*) strstr(')],
     'src/game/main_mem.cpp': [("name = strrchr(file, '/');", "name = (char*) strrchr(file, '/');")],
     'src/st3/r332.cpp': [('p = strstr(', 'p = (char*) strstr(')],
+    'src/game/main_sub.cpp': [('if (addr < GC_U32(0x80000000) || addr > 0x82FFFFFF) {', 'if (!RE4_VALID_PTR(addr)) {')],
     'src/game/esp0a.cpp': [('AddOtWorldPos(e, Esp0a_Trans2,', 'AddOtWorldPos(e, (void (*)(void*)) Esp0a_Trans2,')],
     # skinning palette lived in locked cache at 0xE0000000 (CT-02); the port keeps it in re4_skin_palette
     'src/game/trans.cpp': [('PSMTXReorder(m, (f32(*)[3]) (0xE0000000 + i * 0x30));', 'PSMTXReorder(m, RE4_SKIN_PALETTE(i));')],
+}
+
+# Literal GameCube MEM1 addresses the game uses as pointers (fixed memory map, low-memory globals, DVD and
+# font buffers). Each listed literal becomes GC_U32(lit) = its address inside the port's arena
+# (re4_xbox.h). Bit masks such as 0x80000000 in flag tests are untouched because only these files and
+# these exact literals are rewritten. Found with the grep in 07-COMPILER.md "Fixed addresses".
+GC_ADDRESS_SITES = {
+    'src/game/main_mem.cpp': ['0x817F4000', '0x80350000', '0x80370000', '0x803F0000', '0x80460000', '0x80578000',
+                              '0x807AC000', '0x807EC000', '0x80904000', '0x80974000', '0x81800000', '0x8181FB00',
+                              '0x8034FFFF'],
+    'src/game/main_sub.cpp': ['0x80000000', '0x80460000', '0x803F0000'],
+    'src/game/dvd.cpp': ['0x80000000', '0x80350000', '0x80360000', '0x816D3100', '0x817D3EE0'],
+    'src/game/debug.cpp': ['0x80000000'],
+    'src/game/game.cpp': ['0x807EC000', '0x80974000'],
+    'src/game/file.cpp': ['0x81800000'],
+    'src/game/read.cpp': ['0x807EC000', '0x80904000'],
+    'src/game/snd.cpp': ['0x80370000'],
 }
 
 # headers a unit needs for the port replacements above, inserted after the `#line 1` marker
@@ -90,6 +115,11 @@ PSQ_MACROS = [
     (re.compile(r'#define PSQ_ST_S16\(f, p\) .*'),
      '#define PSQ_ST_S16(f, p) (*(s16*) (p) = (s16) ((f) >= 32767.0f ? 32767 : (f) <= -32768.0f ? -32768 : (int) (f)))'),
 ]
+
+# SDK units compiled from src/lib with their MWCC `asm <type> name(...) { ... }` functions removed (the
+# port provides those: OSGetTime/OSGetTick in port/os/os_misc.cpp)
+SDK_ASM_FUNC_UNITS = ('src/lib/OSTime.c',)
+MWCC_ASM_FUNC_ANY = re.compile(r'^(?:static' + chr(92) + r's+)?asm' + chr(92) + r's+(?:static' + chr(92) + r's+)?[' + chr(92) + r'w' + chr(92) + r's*]+?' + chr(92) + r'b' + chr(92) + r'w+' + chr(92) + r's*' + chr(92) + r'([^)]*' + chr(92) + r')' + chr(92) + r's*' + chr(92) + r'{', re.M)
 
 SDK_C_UNITS = ('src/lib/mtx.c', 'src/lib/mtxvec.c', 'src/lib/mtx44.c', 'src/lib/mtx44vec.c', 'src/lib/vec.c', 'src/lib/quat.c')
 
@@ -197,10 +227,10 @@ def rewrite_empty_asm(m):
     return ' '.join(stmts)
 
 
-def strip_ps_functions(text):
+def strip_ps_functions(text, pattern=None):
     out = []
     pos = 0
-    for m in PS_FUNC.finditer(text):
+    for m in (pattern or PS_FUNC).finditer(text):
         if m.start() < pos:
             continue
         depth = 1
@@ -235,6 +265,15 @@ def prep(text, path):
     if upath.endswith(SDK_C_UNITS):                           # 4. SDK C units
         text = strip_ps_functions(text)
         text = text.replace('#include "fake_tgmath.h"', '#include <math.h>')
+    if upath.endswith(SDK_ASM_FUNC_UNITS):                    # SDK units reused minus their asm functions
+        text = strip_ps_functions(text, MWCC_ASM_FUNC_ANY)
+    for suffix, lits in GC_ADDRESS_SITES.items():             # fixed GameCube addresses -> arena
+        if upath.endswith(suffix):
+            for lit in lits:
+                n_before = len(re.findall(r'\b' + lit + r'\b', text))
+                if n_before == 0:
+                    sys.stderr.write(f'prep.py: {path}: address literal not found: {lit}\n')
+                text = re.sub(r'(?<![\w])' + lit + r'\b', f'GC_U32({lit})', text)
     for suffix, patches in SITE_PATCHES.items():              # 5. one-liners
         if upath.endswith(suffix):
             for old, new in patches:

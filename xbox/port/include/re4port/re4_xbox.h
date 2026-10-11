@@ -39,13 +39,16 @@ extern void re4_fatal(const char* file, int line, const char* msg);
 }
 #endif
 
-#define RE4_MEM1_SIZE 0x01800000u   /* 24 MB */
+#define RE4_MEM1_SIZE 0x01840000u   /* 24 MB MEM1 + 256 KB for the debug build's buffers at 0x81800000.. */
 #define RE4_ARAM_SIZE 0x01000000u   /* 16 MB */
 #define GC_ADDR(a)    ((void*) (re4_mem1_base + ((unsigned) (a) - 0x80000000u)))
 #define GC_OFS(p)     ((unsigned) ((unsigned char*) (p) - re4_mem1_base) + 0x80000000u)
+#define GC_U32(a)     ((unsigned) GC_ADDR(a))   /* a fixed GameCube address as the game's u32 */
 
 /* include/main_mem.h defines VALID_PTR as the 0x80000000..0x82FFFFFF check; override after the fact. */
-#define RE4_VALID_PTR(p) ((unsigned char*) (p) >= re4_mem1_base && (unsigned char*) (p) < re4_mem1_base + RE4_MEM1_SIZE)
+/* The game checks relocated pointers against MEM1 (0x80000000..0x82FFFFFF). Here heaps live in the arena
+ * and statics in the XBE image, so "valid" means non-null and above the first 64 KB. */
+#define RE4_VALID_PTR(p) ((unsigned) (p) >= 0x10000u)
 
 /* --- 3. Symbol renames. The game's main() is called by the port's platform main. */
 #define main re4_main

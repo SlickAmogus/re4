@@ -75,4 +75,36 @@ Results on the real files are at the end.
 
 ## 4. Results on the real files
 
-(filled in by `re4conv convert` runs; see xbox/cloud-tasks/progress/CT-04.md)
+Run: `cd xbox/tools && py -3 -m re4conv convert <disc1/files> <disc2/files> <out>` (both retail USA discs,
+1126 distinct files, ~40 min, mostly yz2 decoding in pure Python), then `check` (1126 ok, 0 problems).
+Manifest: `<out>/manifest.json`. Paths identical on both discs are converted once; the only differing path (`opening.bnr`) has its disc-2 copy in `<out>/files_disc2/`.
+
+Files: converted 611, partial 454 (containers holding passthrough entries; every event is partial because
+of its packet stream), passthrough 46 (Movie/*.sfd, bgm sound files, fonts, misc), dropped 15 (Rel/*.rel),
+failed 0.
+
+Entries (inside containers, ETM files included):
+
+| Tag | converted | passthrough | failed | notes |
+|-----|-----------|-------------|--------|-------|
+| BIN | 5133 | 1 | 0 | passthrough = core.das #11 (not a model) |
+| TPL | 3541 | 27 | 0 | passthrough = 32-byte placeholder `.tpl` bins in events |
+| FCV | 18963 | 0 | 12 | failed (copied verbatim): pl14 #8 (32-byte FCV whose key block is in the padding), wep09/10/21/24/31/32/47 #16/#28 (key counts/offsets past the entry) — `fcv.parse` rejects them; the game probably never plays them |
+| SEQ | 6576 | 24 | 0 | passthrough = op/op0N.das "SEQ" entries (terminal operation scripts, `ss_term.cpp`, not `SEQUENCE_FILE`) |
+| ETM | 13 | — | — | 113 more are partial (they hold passthrough files) |
+| empty | — | — | — | 9912 zero-size/zero-tag slots |
+| EFF 1015, LIT 2052, MDT 315, FCS 242, UWF 157, MAP 142, SAT 139, SMD 133, CAM 128, TEX 128, SHD/SMX/FSE/EAT/CNS 127, AEV/BLK/DRA/DSE/EAR/ESE/ETS/ITA/ITM/OSD/RTP/SAR/STB 126, EMI 46, PTH 5, DMY 4, `bin ` 4, EVS 3, FNT 3, VIB 1 | 0 | all | 0 | second pass (struct families in section 2; FCS, MAP, PTH, DMY, FNT-in-body undocumented yet = **unknown**) |
+
+Standalone: ESL 13, SizeTbl 1, bgmtbl 1 converted (`simple.py`; identical on both discs, so converted once); 235 `.bin`, 287 `.tpl`, 4 `.fcv` files
+converted; `.dat` bodies 62 converted + 55 partial.
+
+Sample runs (CT-04 acceptance set, disc 1):
+
+| File | in -> out bytes | entries |
+|------|-----------------|---------|
+| em/pl00.drs | 2221088 -> 2344640 | BIN 25, TPL 15, FCV 66, SEQ 23 converted; EFF 1 passthrough; 3 empty |
+| em/em10.drs | 10628000 -> 11076800 | BIN 120, TPL 75, FCV 277, SEQ 223 converted; EFF 3 passthrough; REL 424336 B dropped |
+| etc/core.das | 2528000 -> 2534272 | TPL 7 (incl. CI8+CLUT thermo, RGBA8), BIN 1 converted; 28 passthrough |
+| St1/r100.das | 3766400 (yz2) -> 5981184 | 32 converted (BIN/TPL/FCV incl. ETM files), 33 passthrough, ETM partial |
+| St1/r100_00.dat | 28448 -> 28448 | SMD passthrough |
+| Evd/r100s00.evd | 239680 -> 239840 | BIN 5, TPL 3, FCV 2 converted, MDT passthrough, packets BE |

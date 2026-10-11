@@ -294,7 +294,7 @@ GAME_UNITS += src/game/view.cpp
 GAME_UNITS += src/game/xml.cpp
 GAME_UNITS += src/game/yz2code.cpp
 
-LIB_UNITS := src/lib/mtx.c src/lib/mtxvec.c src/lib/mtx44.c src/lib/mtx44vec.c src/lib/vec.c src/lib/quat.c src/lib/OSAlloc.c
+LIB_UNITS := src/lib/mtx.c src/lib/mtxvec.c src/lib/mtx44.c src/lib/mtx44vec.c src/lib/vec.c src/lib/quat.c src/lib/OSAlloc.c src/lib/OSStopwatch.c src/lib/OSTime.c
 
 # REL modules: MODULE_<name> = list of <source under src/>:<object name under build/mod/<name>/>
 MODULE_NAMES := Sscrn st1_0 st1_1 st1_2 st1_3 st2_0 st2_1 st2_2 st2_3 st2_4 st3_0 st3_1 st3_2 st3_3 st4_0 em27 em3e em10 em11 em12 em13 em14 em15 em16 em17 em18 em19 em1a em1b em1c em1d em1e em1f em20 em21 em22 em23 em24 em25 em26 em28 em29 em2a em2b em2c em2d em2e em2f em30 em31 em32 em34 em35 em36 em38 em39 em3a em3b em3c em3d pl02 pl06 pl0a pl0d pl0e pl0f pl11 pl14 wep00 wep01 wep02 wep04 wep05 wep06 wep07 wep08 wep09 wep10 wep11 wep12 wep13 wep14 wep15 wep16 wep17 wep19 wep26 wep27 wep28 wep29 wep30 wep33 wep34 wep35 wep36 wep37 wep38 wep39 wep40 wep41 wep42 wep43 wep44 wep45 wep47

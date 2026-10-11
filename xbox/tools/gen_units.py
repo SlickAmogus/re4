@@ -36,7 +36,7 @@ DEBUG_MODULES = re.compile(r'^(Tools|t_\w+)$')
 
 LIB_UNITS = [
     'mtx.c', 'mtxvec.c', 'mtx44.c', 'mtx44vec.c', 'vec.c', 'quat.c',
-    'OSAlloc.c',
+    'OSAlloc.c', 'OSStopwatch.c', 'OSTime.c',
     # The game's fdlibm (sf_sin, sf_cos, ef_acos, ef_sqrt, sf_fabs ...) duplicates pdclib's libm; the
     # platform versions are used. Revisit if a float-exactness issue is ever traced to libm.
 ]
