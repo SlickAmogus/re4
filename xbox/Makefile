@@ -23,7 +23,7 @@ PY       ?= python3
 
 # --- include paths (NXDK_CFLAGS so they precede nxdk's; explicit nxdk paths because MSYS2 make
 # does not propagate NXDK_DIR into nxdk-cc's shell) -------------------------------------------
-RE4_INC  = -I$(PORT)/include -I$(COMPAT) -I$(ROOT)/include -I$(ROOT)/src -I$(ROOT)/src/lib
+RE4_INC  = -I$(PORT)/include -I$(COMPAT) -I$(PREP)/include -I$(ROOT)/include -I$(ROOT)/src -I$(ROOT)/src/lib
 RE4_INC += -I$(NXDK_DIR)/lib -I$(NXDK_DIR)/lib/winapi -I$(NXDK_DIR)/lib/xboxrt/libc_extensions
 RE4_INC += -isystem $(NXDK_DIR)/lib/pdclib/include -I$(NXDK_DIR)/lib/pdclib/platform/xbox/include
 RE4_INC += -I$(NXDK_DIR)/lib/xboxrt/vcruntime -I$(NXDK_DIR)/lib/sdl/SDL2/include
@@ -69,6 +69,12 @@ $(PREP)/%: $(ROOT)/%
 	@mkdir -p $(dir $@)
 	$(PY) $(CURDIR)/tools/prep.py $< $@
 GAME_SRCS = $(GAME_PREP)
+# the headers are prepped too (include/math_sub.h carries an inline asm); one run over the tree
+PREP_HEADERS = $(PREP)/include/.stamp
+$(PREP_HEADERS): $(wildcard $(ROOT)/include/*.h $(ROOT)/include/*/*.h) $(CURDIR)/tools/prep.py
+	$(PY) $(CURDIR)/tools/prep.py --dir $(ROOT)/include $(PREP)/include
+	@echo prepped > $@
+$(addsuffix .obj,$(basename $(GAME_PREP))): $(PREP_HEADERS)
 $(foreach m,$(MODULE_NAMES),$(eval $(addsuffix .obj,$(basename $(addprefix $(PREP)/,$(MODULE_$(m)_UNITS)))): CFLAGS += -D_prolog=$(m)_prolog -D_epilog=$(m)_epilog -D_unresolved=$(m)_unresolved))
 else
 PORT_SRCS += $(PORT)/stub_game.cpp

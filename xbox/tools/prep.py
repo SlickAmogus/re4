@@ -1,31 +1,51 @@
 #!/usr/bin/env python3
-"""prep.py — prepares one game source for the x86 compilers (xbox/docs/07-COMPILER.md).
+"""prep.py — prepares one game source (or every header of a directory) for the x86 compilers
+(xbox/docs/07-COMPILER.md).
 
     python3 xbox/tools/prep.py <src> <out> [--module NAME]
+    python3 xbox/tools/prep.py --dir <include dir> <out dir>
 
 The game tree is never edited. Rules, in order:
   1. `register T x asm("rN")` / `asm("fN")` pins become plain declarations.
   2. Empty-template asm levers `asm("" : outputs : inputs : clobbers);` (the decomp's codeless
      COMPILER-DIFF mechanisms) are rewritten: a tied output (`"=r"(a) : "0"(b)`) becomes `a = b;`,
      everything else becomes `((void) 0);`. `asm volatile("" ::: "memory")` is valid on x86 and stays.
-  3. Known asm bodies are replaced by #include of the port's C versions (REPLACEMENTS).
-  4. The SDK's C sources (src/lib mtx*.c, vec.c, quat.c): MWCC `asm <type> <name>(...) { ... }`
-     function bodies are removed (the game links the C_* versions under the PS* names, see
-     re4_xbox.h), and "fake_tgmath.h" becomes <math.h>.
-  5. A few const-correctness sites GCC 2.95 accepted (SITE_PATCHES).
+  3. Known asm bodies are replaced (REPLACEMENTS): trans.cpp skinning -> #include of the port's C
+     versions, math_sub.cpp SQRTF/SINF/COSF/LIMIT_ANGLE -> C (exact polynomials come with CT-02),
+     math_sub.h fabs.
+  4. The SDK's C sources (src/lib mtx*.c, vec.c, quat.c): every PS* function (MWCC `asm void PS...`
+     bodies and C bodies with paired-single asm blocks) is removed; the game links the C_* versions
+     under the PS* names (re4_xbox.h), and "fake_tgmath.h" becomes <math.h>.
+  5. A few const-correctness / function-pointer sites GCC 2.95 accepted (SITE_PATCHES).
   6. `#line` directives are kept so diagnostics point at the real file.
 `--module NAME` is informational; the Makefile passes -D_prolog=NAME_prolog etc. on the command line.
 Based on tools/motion/host/prepare.py from the decomp.
 """
+import os
 import re
 import sys
 
 # unit path suffix -> [(regex, replacement)], applied with re.S
 REPLACEMENTS = {
     'src/game/trans.cpp': [
-        (r'void CalcSk1_x\(void\* dst, void\* src, u32 n\)\n\{\n    asm volatile\(.*?\);\n\}\n', '#include "re4port/skin_calcsk1.inc"\n'),
-        (r'void CalcSk1_x2\(void\* dst, void\* src, u32 n\)\n\{\n    asm volatile\(.*?\);\n\}\n', '#include "re4port/skin_calcsk1_x2.inc"\n'),
-        (r'void setupGQR6\(u32 v\)\n\{\n    asm volatile\("mtspr 918, %0" : : "r"\(v\)\);\n\}\n', 'void setupGQR6(u32 v)\n{\n    extern u32 re4_gqr6; re4_gqr6 = v;\n}\n'),
+        (r'void CalcSk1_x\(void\* dst, void\* src, u32 n\)\n\{\n    asm volatile\(.*?\);\n\}\n',
+         '#include "re4port/skin_calcsk1.inc"\n'),
+        (r'void CalcSk1_x2\(void\* dst, void\* src, u32 n\)\n\{\n    asm volatile\(.*?\);\n\}\n',
+         '#include "re4port/skin_calcsk1_x2.inc"\n'),
+        (r'void setupGQR6\(u32 v\)\n\{\n    asm volatile\("mtspr 918, %0" : : "r"\(v\)\);\n\}\n',
+         'void setupGQR6(u32 v)\n{\n    extern u32 re4_gqr6; re4_gqr6 = v;\n}\n'),
+    ],
+    'src/game/math_sub.cpp': [
+        (r'    asm\("frsqrte 2, %1.*?"fr2", "fr3", "fr4"\);\n',
+         '    r = __builtin_sqrtf(x); (void) half; (void) three;   /* prep.py: SDK frsqrte + Newton */\n'),
+        (r'    asm volatile\(\n        "lis 9, Coeff@ha.*?"ps_sum0 %0, 4, 4, 4"\n        : "=f"\(r\)\n        : "f"\(x\)\n        : "r9", "r10", "r11", "fr2", "fr3", "fr4", "fr5"\);\n',
+         '    r = __builtin_sinf(x);   /* prep.py: paired-single Taylor series; CT-02 ports the exact polynomial */\n'),
+        # COSF carries the same block after `x = LIMIT_ANGLE(x + pi/2)`, so the rule above covers it too
+        (r'    asm\("fcmpu 0, %0, %2.*?: "cr0"\);\n',
+         '    if (x >= max) { do { x -= step; } while (x >= max); } else if (x < min) { do { x += step; } while (x < min); }\n'),
+    ],
+    'include/math_sub.h': [
+        (r'asm volatile\("fabs %0,%1" : "=f"\((\w+)\) : "f"\((\w+)\)\);', r'\1 = __builtin_fabsf(\2);'),
     ],
 }
 
@@ -34,6 +54,7 @@ SITE_PATCHES = {
     'src/game/xml.cpp': [('= strstr(', '= (char*) strstr(')],
     'src/game/main_mem.cpp': [("name = strrchr(file, '/');", "name = (char*) strrchr(file, '/');")],
     'src/st3/r332.cpp': [('p = strstr(', 'p = (char*) strstr(')],
+    'src/game/esp0a.cpp': [('AddOtWorldPos(e, Esp0a_Trans2,', 'AddOtWorldPos(e, (void (*)(void*)) Esp0a_Trans2,')],
 }
 
 PSQ_MACROS = [
@@ -48,14 +69,18 @@ SDK_C_UNITS = ('src/lib/mtx.c', 'src/lib/mtxvec.c', 'src/lib/mtx44.c', 'src/lib/
 
 EMPTY_ASM = re.compile(r'\basm\s*(?:volatile\s*)?\(\s*""\s*(?P<ops>:[^;]*)?\)\s*;')
 
+# `asm void PSVECAdd(...) {` (MWCC) and `void PSVECScale(register ...) {` (C body with asm blocks)
+PS_FUNC = re.compile(r'^(?:asm\s+)?(?:void|f32|u32|int)\s+PS\w+\s*\([^)]*\)\s*\{', re.M)
+
 
 def split_operands(s):
     """'"=r"(a), "=m"(b)' -> [('=r', 'a'), ('=m', 'b')] with balanced parentheses."""
     out = []
     i = 0
     n = len(s)
+    head = re.compile(r'\s*"([^"]*)"\s*\(')
     while i < n:
-        m = re.compile(r'\s*"([^"]*)"\s*\(').match(s, i)
+        m = head.match(s, i)
         if not m:
             break
         constraint = m.group(1)
@@ -95,13 +120,10 @@ def rewrite_empty_asm(m):
     return ' '.join(stmts)
 
 
-MWCC_ASM_FUNC = re.compile(r'^asm\s+[\w*\s]+?\b\w+\s*\([^)]*\)\s*\{', re.M)
-
-
-def strip_mwcc_asm_functions(text):
+def strip_ps_functions(text):
     out = []
     pos = 0
-    for m in MWCC_ASM_FUNC.finditer(text):
+    for m in PS_FUNC.finditer(text):
         if m.start() < pos:
             continue
         depth = 1
@@ -113,7 +135,7 @@ def strip_mwcc_asm_functions(text):
                 depth -= 1
             j += 1
         out.append(text[pos:m.start()])
-        out.append('/* MWCC asm function removed by prep.py (C_ version linked instead) */\n')
+        out.append('/* PS* function removed by prep.py (the C_ version is linked under the PS name) */\n')
         pos = j
     out.append(text[pos:])
     return ''.join(out)
@@ -132,7 +154,7 @@ def prep(text, path):
                 if n == 0:
                     sys.stderr.write(f'prep.py: {path}: pattern not found: {pat[:50]}...\n')
     if upath.endswith(SDK_C_UNITS):                           # 4. SDK C units
-        text = strip_mwcc_asm_functions(text)
+        text = strip_ps_functions(text)
         text = text.replace('#include "fake_tgmath.h"', '#include <math.h>')
     for suffix, patches in SITE_PATCHES.items():              # 5. one-liners
         if upath.endswith(suffix):
@@ -143,14 +165,30 @@ def prep(text, path):
     return text
 
 
-def main():
-    args = [a for a in sys.argv[1:] if not a.startswith('--')]
-    src, out = args[0], args[1]
+def prep_file(src, out):
     with open(src, encoding='utf-8', errors='surrogateescape') as f:
         text = f.read()
+    os.makedirs(os.path.dirname(out) or '.', exist_ok=True)
     with open(out, 'w', encoding='utf-8', errors='surrogateescape', newline='\n') as f:
         f.write(f'#line 1 "{src}"\n')
         f.write(prep(text, src))
+
+
+def prep_dir(src_dir, out_dir):
+    """--dir: prep every header under src_dir into out_dir (same relative paths)."""
+    for dp, _, fn in os.walk(src_dir):
+        for name in fn:
+            if name.endswith(('.h', '.inc')):
+                sp = os.path.join(dp, name)
+                prep_file(sp, os.path.join(out_dir, os.path.relpath(sp, src_dir)))
+
+
+def main():
+    args = [a for a in sys.argv[1:] if not a.startswith('--')]
+    if '--dir' in sys.argv:
+        prep_dir(args[0], args[1])
+        return
+    prep_file(args[0], args[1])
 
 
 if __name__ == '__main__':

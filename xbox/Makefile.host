@@ -39,6 +39,11 @@ $(PREP)/%: $(ROOT)/%
 	@mkdir -p $(dir $@)
 	$(PY) tools/prep.py $< $@
 GAME_OBJS = $(addsuffix .o,$(GAME_PREP))
+PREP_HEADERS = $(PREP)/include/.stamp
+$(PREP_HEADERS): $(wildcard $(ROOT)/include/*.h $(ROOT)/include/*/*.h) tools/prep.py
+	$(PY) tools/prep.py --dir $(ROOT)/include $(PREP)/include
+	@echo prepped > $@
+$(GAME_OBJS): $(PREP_HEADERS)
 $(foreach m,$(MODULE_NAMES),$(eval $(addsuffix .o,$(addprefix $(PREP)/,$(MODULE_$(m)_UNITS))): CPPFLAGS += -D_prolog=$(m)_prolog -D_epilog=$(m)_epilog -D_unresolved=$(m)_unresolved))
 else
 PORT_SRCS += $(PORT)/stub_game.cpp
