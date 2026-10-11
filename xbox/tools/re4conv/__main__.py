@@ -137,6 +137,8 @@ def check_file(rel, out: bytes, orig: bytes, rec) -> list:
             return container.check_body(out, orig, rec)
         if kind in container.ENTRY:
             return container.check_entry(kind, out, orig)
+        if kind == 'rel':
+            return [] if out == container.rel_header_le(orig) else ['REL header does not match the original']
     except (ConvertError, ValueError, IndexError, AssertionError) as e:
         return [f'check raised {type(e).__name__}: {e}']
     return [f'no checker for kind {kind}']
