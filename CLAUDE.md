@@ -2,8 +2,9 @@
 
 This fork of [adonis-singh/re4](https://github.com/adonis-singh/re4) (the 100% matched decompilation of the
 Resident Evil 4 GameCube **debug** build, G4BE08 "Nov 25 2004") carries an original-Xbox port built with
-[nxdk](https://github.com/SlickAmogus/nxdk) (our fork with RXDK hardware-audio support). `master` tracks the
-upstream decomp and is never edited; all port work lives on the `xbox` branch, under `xbox/`.
+[nxdk](https://github.com/SlickAmogus/nxdk) (our fork with RXDK hardware-audio support). `xbox` is the
+default branch and carries all port work under `xbox/`; `master` tracks the upstream decomp and is never
+edited (merge it into `xbox` to pick up decomp fixes).
 
 Start with `xbox/docs/00-PORTING-PLAN.md`, then the design doc for the subsystem you are touching.
 
@@ -16,7 +17,8 @@ Start with `xbox/docs/00-PORTING-PLAN.md`, then the design doc for the subsystem
    reports the repo is not indexed, returns nothing for a symbol that must exist, or the question is about
    literal text (string constants, magic numbers, comments). Say which one you used when it matters.
    If `list_repositories` does not show `SlickAmogus/re4`, tell the user to add it in the Graphify web app;
-   do not silently fall back for the whole session.
+   do not silently fall back for the whole session. Cloud sessions (Claude Code on the web) currently have
+   no Graphify server at all: say so once at the start and use `Grep` for the session.
 2. **Never edit `master`.** Port work goes on `xbox` (or a branch off it). Keep `src/` and `include/`
    mergeable with upstream: prefer new files under `xbox/`, force-included headers
    (`xbox/port/include/re4port/re4_xbox.h`) and macro overrides over editing game code. When a game file
@@ -66,6 +68,8 @@ xbox/
 - Xbox: `bash xbox/build_xbox.sh` (needs `C:\Claude\nxdk` or `NXDK_DIR`; MSYS2 make). Output
   `xbox/bin/default.xbe`.
 - Host: `make -C xbox -f Makefile.host` (Linux, gcc-multilib for `-m32`, SDL2). See `07-COMPILER.md` for why
-  the host build is 32-bit.
+  the host build is 32-bit. Cloud sessions get `gcc-multilib`/`g++-multilib`, `jsonschema` and `pytest`
+  from the SessionStart hook in `.claude/hooks/session-start.sh`.
+- Port unit tests: `make -C xbox/port/tests && ./xbox/port/tests/<name>` (32-bit, no game data).
 
 Neither build is functional yet; `xbox/README.md` tracks the current milestone.

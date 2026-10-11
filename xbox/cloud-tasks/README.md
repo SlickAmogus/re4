@@ -5,7 +5,12 @@ to read, what to produce, and how to verify it on a PC. Pick one, work on branch
 it named `xbox-ct-NN`), open a PR against `xbox` when the acceptance criteria pass.
 
 Before starting any task: read `/CLAUDE.md` and `xbox/docs/00-PORTING-PLAN.md`. Use the Graphify MCP tools
-for code navigation when the repo is indexed (rule 1 in `CLAUDE.md`).
+for code navigation when the repo is indexed (rule 1 in `CLAUDE.md`); cloud sessions have no Graphify and
+use grep.
+
+Cloud environment: Ubuntu with clang/gcc; `.claude/hooks/session-start.sh` installs `gcc-multilib`,
+`g++-multilib` (for `-m32`), `jsonschema` and `pytest` at session start, so `make -C xbox -f Makefile.host`
+and `make -C xbox/port/tests` work out of the box. There is no nxdk in the cloud: Xbox builds are local.
 
 Game data: cloud sessions have none. Tasks that need samples say which small files to synthesise or ask
 the user to attach (a single `files/em/em10.drs` is 10 MB; `files/etc/core.das` is 2.4 MB; one room

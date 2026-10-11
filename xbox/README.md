@@ -41,8 +41,12 @@ bash xbox/build_xbox.sh
 Host PC build (Linux, used for development, tests and cloud tasks):
 
 ```sh
-make -C xbox -f Makefile.host
+sudo apt-get install gcc-multilib g++-multilib          # 32-bit toolchain; plus libsdl2-dev:i386 libgl-dev:i386 for RE4_GL=1
+make -C xbox -f Makefile.host                           # port layer + stub game -> xbox/build/host/re4_host
+make -C xbox/port/tests && ./xbox/port/tests/gx         # port unit tests (no game data needed)
 ```
+
+Claude Code cloud sessions install the 32-bit toolchain automatically through `.claude/hooks/session-start.sh`.
 
 ## Game data
 
