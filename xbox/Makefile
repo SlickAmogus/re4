@@ -8,6 +8,7 @@
 # include paths in NXDK_CFLAGS (before nxdk's own), project flags only on our objects, nxdk's Makefile last.
 
 XBE_TITLE = Resident Evil 4
+.DEFAULT_GOAL := all
 NXDK_DIR ?= $(CURDIR)/../../../nxdk
 NXDK_SDL  = y
 NXDK_CXX  = y

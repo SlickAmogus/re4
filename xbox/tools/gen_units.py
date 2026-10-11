@@ -47,6 +47,8 @@ def main():
         stem = os.path.splitext(name)[0]
         if stem in DEBUG_UNITS:
             continue
+        if name.endswith('.c'):
+            continue   # SN newlib pieces (printf, strcpy, qsort, sn_malloc ...): pdclib/libc++ provide them
         lines.append(f'GAME_UNITS += src/game/{name}')
     lines += ['', '# shared stage helpers (src/st: cEmWrap, cSceObj) link with the DOL side']
     if os.path.isdir(os.path.join(SRC, 'st')):

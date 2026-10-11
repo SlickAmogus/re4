@@ -113,3 +113,69 @@ thermo TPL twice.
 icon/banner `CardStat`. Port: `E:\UDATA\<titleid>\<slot>\RE4SAVE.BIN` (or next to the XBE when run from
 HDD, as Duke probes), same bytes, so the save format stays the game's own. Two "slots" emulate the two
 memory-card channels.
+
+## File resolution
+
+Audit of every name the game asks for against the retail USA discs: `py -3 xbox/tools/filelist_check.py`
+(input `xbox/tools/retail_filelist.txt`, output `xbox/port/dvd/filenames.inc`, task `CT-01`).
+
+**How a name becomes a disc read.** `FileTblEntry FileTbl[]` (`src/game/dvd.cpp:7`, 254 entries of
+`{"path", entrynum}`, `include/dvd.h:231`) is resolved once at boot by `cDvd::FileTblExistCheck`
+(`dvd.cpp:1261`: `FileTbl[i].entrynum = DVDConvertPathToEntrynum(FileTbl[i].name)`, -1 when absent).
+`DvdRead(fileNo)` (`dvd.cpp:346`) uses that cached entrynum; `DvdReadN(name)` (`dvd.cpp:365`) copies the
+string into `DvdReqWork.fname` and `cDvdQueue::Initialize` converts it again at request time
+(`dvd.cpp:864`). `cDvd::FileExistCheck` (`dvd.cpp:1275`) is the same conversion plus `DVDFastOpen` for the
+length. The SDK conversion is **case-insensitive** (`src/lib/dvdfs.c:50`, `isSame()` compares with
+`tolower`), which is why the code can say `rel/st1_0.rel`, `st1/r100.das`, `SS/cmn/...`, `Font/...`,
+`movie/...`, `etc/sizetbl.dat` while the discs spell them `Rel/`, `St1/`, `ss/Cmn/`, `font/`, `Movie/`,
+`etc/SizeTbl.dat` (926 of the requested names differ only in case). The Xbox shim must lower-case both
+sides of its lookup; `filenames.inc` records the exact disc spelling for every name.
+
+**`.das` vs `.drs`.** `FileTbl` names every enemy, player and weapon archive as `em/<name>.das`
+(126 entries), but no disc, retail or debug, has such a file: both carry `em/<name>.drs`
+(`config/G4BE08/config.yml:18` says the REL of the debug disc is inside `files/em/<name>.drs` too). The
+mechanism is the macro `SET_DRS_NAME(p)` in `src/game/read.cpp:107-113`: it walks `p` to the `.` and
+overwrites the three extension bytes with `drs` **in the `FileTbl[]` string itself** (the table is
+writable `.data`, so the entry stays `.drs` afterwards). It runs right before the by-name read in
+`readEmData` (`read.cpp:383-387`, when the `EmFileTbl` row has `dll != 0`, which is every row with a
+file), `ReadPlayerData` (`read.cpp:651-654`, unconditionally) and `ReadWepData` (`read.cpp:919-925`,
+when `dll != 0`); all three then call `DVD_READ_N(FileTbl[..].name, ...)`, so the fresh
+`DVDConvertPathToEntrynum` sees the `.drs` spelling. The boot-time entrynum of those entries is -1 and is
+never used: no `DvdRead(fileNo)` caller uses an `em/` index (the by-index readers are `snd.cpp:92/102/108/
+114/130/1690/2518` for `bgm/*` and `etc/memcard.das`, `read.cpp:199` for `etc/core.das`, and
+`roomdata.cpp:297` for the room RELs `rel/stN_M.rel`). The companion `rel/<name>.rel` entries (98) are
+only used as a non-zero "has a DLL" flag (`EmFileTbl` `{file, dll, 1}` rows, `read.cpp:272-343`,
+`wep_data_*` `read.cpp:727-797`); the REL is carved out of the `.drs` after the read. `filenames.inc`
+therefore lists each `em/*.das` as an alias of its `.drs` file (`filetbl_das_alias`) so the shim's boot
+check succeeds, and the `rel/em*/wep*/pl*.rel` names as `RE4_FILE_MISSING` (debug-only).
+
+**Dynamic names** (hand-listed in the script with their source line): room archive
+`st%x/r%03x.das` (`read.cpp:158`), room sub-block `st%x/r%03x_%02x.dat` (`block.cpp:662`), events
+`evd/rNNNsNN.evd` built by `EvtReadSub` from the 80 `"event/evd/..."` literals via `strstr("evd/")`
+(`event.cpp:2295`) and `NameChange` (`event.cpp:2258`, `r`→`s` for the alternate costume: the discs have
+38 `Evd/s*.evd`), `SS/%3s/option.dat` (`read.cpp:219`), `Font/stage%1d_j.fnt` / `Font/event%1d_j.fnt`
+(`mes.cpp:461/465`), `SS/___/f%02dA.tpl` (`ss_file.cpp:889`), `SS/item/cap%02d` and `idm%03x` `.bin/.tpl`
+(`ss_main.cpp:498-528`), `SS/cmn/ss_wep%02ld.dat` (`ss_model.cpp:71`), `SS/cmn/itm%02x.bin/.tpl`
+(`sce_at.cpp:936`), `op/op%02d.das` (`ss_term.cpp:727`), `SS/cmn/ss_oc<n>.dat` (`ss_term.cpp:644`),
+`SS/cmn/map_obj*.dat` (`ss_map.cpp:2300-2351`), `SS/___/chap%02ld.dat` (`sce_com.cpp:749`), and the
+`"SS/___/"` language prefix filled by `setLangExt3` (`option.cpp:39`) / `sscrnSetLanguage`
+(`sscrn.cpp:103`) with `jpn/eng/ger/fra/esp/ita`. The USA discs only ship `ss/Eng`, `ss/Cmn`, `ss/Item` and
+`etc/Eng`, so the port must pin `pSys->language = 1`. Saves use `ss/cmn/save_<j|e|g|f|s|i>.dat`
+(`card.cpp:172`, `fileext[] = "jeegfsie"`).
+
+**Result** (1125 unique retail paths, 846 on both discs, 172 disc-1-only, 107 disc-2-only = `St3/*`,
+`Evd/r3*`+`s3*`, `Rel/st3_*`, `Movie/ending.sfd`, `Movie/r333_ev.sfd`; `St2/r22c.das` is the one St2
+file on disc 2): 1213 requested names resolve; every FileTbl entry resolves or is classified. Not on
+retail: `FileTbl` `etc/moji8.tpl` (debug font, `eprintf.cpp:325`), `etc/title.das`, `etc/youdied.tpl`,
+`etc/thank.tpl` (never read by index), `em/em06.das`, `em/wep99.das` (no table row names them);
+`Etc/Ending.tpl` (`game.cpp:984` ending still, retail ends through `Movie/ending.sfd`), `movie/dmy.sfd`
+(fallback, absence handled `sofdec.cpp:513`), `movie/e3_jpn.sfd` (JPN title), `etc/jpn/*` (language 0),
+`evd/r100s01/02/42.evd` (dead `r100_evtName[]` rows, `r100.cpp:411`), `op/op04.das` (stage 4 has no
+radio). Never requested by any name or pattern (37): `em/pl02.drs`, `em/pl04.drs`, `em/pl21.drs`,
+`etc/emleon08/09.esl`, `etc/Eng/event.eff`, the `font/*_p.fnt`, `font/dvd_j.fnt`, `font/ss_*`,
+`font/sscrn_*` fonts, `ss/Cmn/f01..12.tpl`, `ss/Cmn/map_obj2.dat`, `ss_em18.dat`, `ss_tel01.dat`,
+`ss/Eng/chapter.dat`, `ss/Eng/tel*.fcv`, `ss/Eng/title.snd`, `opening.bnr`, `znull.dat` (some are read by
+names inside archives or by the sub-screen REL's own tables; keep them in the converter manifest).
+Debug-only paths (never a disc read): `debug/config.txt` (`debug.cpp:422`), `debug/roomInfo.dat`
+(`main.cpp:366`), `d:\bio4/...` SN-host reads (`card.cpp:638/866`, `dvd.cpp:868` `SYS_SN_PC_READ`),
+`x:/soft/...` (`event.cpp:365`).

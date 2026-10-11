@@ -33,8 +33,15 @@ REPLACEMENTS = {
         (r'void CalcSk1_x2\(void\* dst, void\* src, u32 n\)\n\{\n    asm volatile\(.*?\);\n\}\n',
          '#include "re4port/skin_calcsk1_x2.inc"\n'),
         (r'void setupGQR6\(u32 v\)\n\{\n    asm volatile\("mtspr 918, %0" : : "r"\(v\)\);\n\}\n',
-         'void setupGQR6(u32 v)\n{\n    extern u32 re4_gqr6; re4_gqr6 = v;\n}\n'),
+         'void setupGQR6(u32 v)\n{\n    extern unsigned int re4_gqr6; re4_gqr6 = (unsigned int) v;\n}\n'),
     ],
+    # GQR2..GQR7 setup (`li 3, N; oris 3, 3, N; mtspr 91x, 3` = 0x000N000N: load/store type N, scale 0)
+    # in scheduler.cpp TaskExec_hook and main.cpp; the port's skinning reads re4_gqr6 instead.
+    'src/game/scheduler.cpp': [(r'    asm\("li 3, 4\\n".*?\);\n', '    ((void) 0);   /* prep.py: GQR2..7 = 0x00040004.. (paired-single quantisation; no-op on x86) */\n')],
+    'src/game/main.cpp': [(r'    asm\("li 3, 4\\n".*?\);\n', '    ((void) 0);   /* prep.py: GQR setup, see scheduler.cpp */\n')],
+    # the game's placement new collides with libc++'s <new> (pulled in through include/xml.h)
+    'include/cManager.h': [(r'inline void\* operator new\(unsigned int, void\* p\) \{ return p; \}', '#include <new>')],
+    'include/cam_extra.h': [(r'inline void\* operator new\(unsigned int, void\* p\) \{ return p; \}', '#include <new>')],
     'src/game/math_sub.cpp': [
         (r'    asm\("frsqrte 2, %1.*?"fr2", "fr3", "fr4"\);\n',
          '    r = __builtin_sqrtf(x); (void) half; (void) three;   /* prep.py: SDK frsqrte + Newton */\n'),
@@ -67,7 +74,11 @@ PSQ_MACROS = [
 
 SDK_C_UNITS = ('src/lib/mtx.c', 'src/lib/mtxvec.c', 'src/lib/mtx44.c', 'src/lib/vec.c', 'src/lib/quat.c')
 
-EMPTY_ASM = re.compile(r'\basm\s*(?:volatile\s*)?\(\s*""\s*(?P<ops>:[^;]*)?\)\s*;')
+# The `;` is optional: inside a macro body (pendulum.cpp PEN_ANCHOR) the lever has none, and the
+# operand list never contains `;` or `#` (so the match cannot run into the next line of a macro).
+EMPTY_ASM = re.compile(r'\basm\s*(?:volatile\s*)?\(\s*""\s*(?P<ops>:[^;#]*)?\)[ \t]*;?')
+# top-level section/alignment levers (`asm(".section .sdata; .balign 8");`): x86 has no .sdata
+SECTION_ASM = re.compile(r'^asm\("\s*\.section [^"]*"\);[ \t]*\n', re.M)
 
 # `asm void PSVECAdd(...) {` (MWCC) and `void PSVECScale(register ...) {` (C body with asm blocks)
 PS_FUNC = re.compile(r'^(?:asm\s+)?(?:void|f32|u32|int)\s+PS\w+\s*\([^)]*\)\s*\{', re.M)
@@ -145,6 +156,7 @@ def prep(text, path):
     upath = path.replace('\\', '/')
     text = re.sub(r'\s*asm\("f?r\d+"\)', '', text)            # 1. register pins
     text = EMPTY_ASM.sub(rewrite_empty_asm, text)            # 2. codeless levers
+    text = SECTION_ASM.sub('', text)
     for pat, rep in PSQ_MACROS:
         text = pat.sub(rep, text)
     for suffix, rules in REPLACEMENTS.items():                # 3. asm bodies
@@ -170,7 +182,7 @@ def prep_file(src, out):
         text = f.read()
     os.makedirs(os.path.dirname(out) or '.', exist_ok=True)
     with open(out, 'w', encoding='utf-8', errors='surrogateescape', newline='\n') as f:
-        f.write(f'#line 1 "{src}"\n')
+        f.write('#line 1 "%s"\n' % src.replace('\\', '/'))   # forward slashes: clang reads \o as an escape
         f.write(prep(text, src))
 
 

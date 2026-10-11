@@ -1,0 +1,8 @@
+ct06_dsp
+ct06_dsp.exe
+ct06_xbox
+ct06_xbox.exe
+*.o
+*.pdb
+*.ilk
+__pycache__/
