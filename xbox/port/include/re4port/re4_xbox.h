@@ -46,9 +46,13 @@ extern void re4_fatal(const char* file, int line, const char* msg);
 #define GC_U32(a)     ((unsigned) GC_ADDR(a))   /* a fixed GameCube address as the game's u32 */
 
 /* include/main_mem.h defines VALID_PTR as the 0x80000000..0x82FFFFFF check; override after the fact. */
-/* The game checks relocated pointers against MEM1 (0x80000000..0x82FFFFFF). Here heaps live in the arena
- * and statics in the XBE image, so "valid" means non-null and above the first 64 KB. */
-#define RE4_VALID_PTR(p) ((unsigned) (p) >= 0x10000u)
+/* The game tells relocated pointers from file offsets with the MEM1 range check 0x80000000..0x82FFFFFF
+ * (VALID_PTR, cSat::blockInit, smxInit, cSmd::slide) and with the sign ((s32) p < 0 = pointer). Both stay
+ * true because the arena is placed inside that range: on Xbox contiguous memory below 48 MB physical is
+ * mapped at 0x80000000 + physical (xbox_main.cpp re4_xbox_alloc_contiguous), on the host it is mapped at
+ * exactly 0x80000000. Statics in the executable image are *not* in that range, as on the GameCube where
+ * the check only ever saw heap and archive data. */
+#define RE4_VALID_PTR(p) ((unsigned) (p) >= 0x80000000u && (unsigned) (p) <= 0x82FFFFFFu)
 
 /* --- 3. Symbol renames. The game's main() is called by the port's platform main. */
 #define main re4_main

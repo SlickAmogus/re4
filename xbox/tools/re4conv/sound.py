@@ -314,4 +314,7 @@ FILES = {
 
 
 def handler(rel: str):
-    return FILES.get(rel.replace('\\', '/').lower())
+    key = rel.replace('\\', '/').lower()
+    if key.endswith('.snd'):    # ss/*/title.snd: one bank (title.cpp:118, DvdReadN mode 0x8000)
+        return ('sound_bank', convert_bank, check_bank)
+    return FILES.get(key)

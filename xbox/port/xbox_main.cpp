@@ -27,11 +27,18 @@ extern "C" const char* xbox_get_writedir(void);
 extern "C" const char* re4_data_dir;
 const char* re4_data_dir = "D:\\data";
 
+// Below 48 MB physical so the virtual address (0x80000000 + physical) passes the game's MEM1 range
+// checks (re4_xbox.h RE4_VALID_PTR).
+#define RE4_ARENA_MAXPHYS 0x02FFFFFF
+
 extern "C" void* re4_xbox_alloc_contiguous(unsigned size)
 {
     // Cached: the game's heaps live here and the CPU reads them constantly (write-combined memory is
     // uncached for reads). The GX backend copies textures/vertices into its own GPU memory.
-    return MmAllocateContiguousMemoryEx(size, 0, MAXRAM, 0, PAGE_READWRITE);
+    void* p = MmAllocateContiguousMemoryEx(size, 0, RE4_ARENA_MAXPHYS, 0, PAGE_READWRITE);
+    if (p && ((unsigned) p < 0x80000000u || (unsigned) p + size - 1 > 0x82FFFFFFu))
+        re4_log("arena %p outside 0x80000000..0x82FFFFFF: relocation checks will misfire\n", p);
+    return p;
 }
 
 int main(void)

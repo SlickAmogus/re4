@@ -1,6 +1,6 @@
 # CT-14 — Asset converter, second pass: room blocks, effects, events, sound banks
 
-**Status:** open · needs samples (ask the user to attach a few files; never commit them)
+**Status:** mostly done (2026-10-11, local run on the retail discs): sound tables, all room tables, EFF/EST/SST, event packets, MDT, fonts, UWF converted; MAP/PTH/DMY/OSD/DRA left passthrough. See progress/CT-14.md and FORMATS.md 2a/3a.
 
 ## Goal
 

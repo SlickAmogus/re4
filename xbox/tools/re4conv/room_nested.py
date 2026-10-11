@@ -40,8 +40,13 @@ class Table:
     """An offset table at `ofs` (absolute) whose slots are relative to it.
     counted: u32 num precedes the slots; else the slot count is the first entry offset / 4."""
 
-    def __init__(self, field, ofs, slots, tag, counted, gap):
+    def __init__(self, field, ofs, slots, tag, counted, gap, single=False):
         self.field, self.ofs, self.slots, self.tag, self.counted, self.gap = field, ofs, slots, tag, counted, gap
+        self.single = single      # the field points at one nested file directly (EffEfmEnt parts)
+
+
+def _single(field, ofs, tag):
+    return Table(field, ofs, [0], tag, False, 0, single=True)
 
 
 def _slot_table(L, field, t, tag, end):
@@ -79,6 +84,8 @@ def _entries(d, tables, end):
     next table / `end`."""
     starts = {}
     for tb in tables:
+        if tb.single:
+            starts[tb.ofs] = tb.tag
         for s in tb.slots:
             if s:
                 starts[tb.ofs + s] = tb.tag
@@ -167,7 +174,70 @@ def _itm(d, e):
     return _counted_tables(L, d, ((8, o_bin, 'BIN'), (0xC, o_tpl, 'TPL')))
 
 
-PARSERS = {'SMD': _smd, 'SHD': _shd, 'TEX': _tex, 'ITM': _itm}
+# ---- EFF (eff_sys.cpp:40 ESP_EFF_HEADER, :329 EspDataLoad) and its nested records ----------------------------------
+# u32 Num 0xB; u32 Tpl/Est/Sst/Path/Obj id table offsets @4..0x14 (EffIdTbl {u32 num; {u16 id, type; u32 Flg}[num]};
+# the u16 id doubles as {u8 x0, id} in SstList (espgen.h:30), see the port note in FORMATS.md); u32 Tpl, Anm, Est,
+# Sst, Path, Obj table offsets @0x18..0x2C (EffOfsTbl {u32 num; u32 ofs[num] relative to the table}; 0 = none):
+# TPL, cAnm, cEspSeqHead (EST and SST, esp.h:105), Path (path.h:26 {u16 num; pad 2; PATH_UNIT 0x28 {Vec pos, normal;
+# f32 Length; u8 weight_id[3], weight_num, weight_rate[3]; pad 5}[num]}), EffEfmEnt (eff_sys.cpp:33 {u32 x0,
+# ofsModel, ofsTpl, ofsMot, ofsX} relative to the entry -> BIN, TPL, EspEfmMotTbl {u32 num; u32 ofs[]} of FCV
+# motions, shape header (FCV layout)).
+
+ESQ_HEAD = '4HHBB3f3fBBHII'     # u16 num + 3 more u16 (PS2 cEspSeqHead data_num[4]); records = num
+ESQ_TBL = ('4BH2BI' '9f' 'f' '21f' '5f' '4B' '4f' '6H' 'BbH' '8B' '4B' 'II' 'I' '9f' '4B' '4s' '4B' '4B' '4b' '4h'
+           '3f' '4b' '4B')
+PATH_UNIT = '3f3ff3BB3B5s'
+assert struct.calcsize('<' + ESQ_HEAD) == 0x30 and struct.calcsize('<' + ESQ_TBL) == 0x12C
+assert struct.calcsize('<' + PATH_UNIT) == 0x28
+
+
+def _esq_layout(d, e):
+    L = _L(d, e)
+    n = L.get('H', 0)
+    L.add(0, 0x30, ESQ_HEAD)
+    end = L.arr(0x30, ESQ_TBL, n)
+    # stale tool data after the records (r11c: 0x38C bytes, core #1: two blocks) is not referenced: copied
+    L.add(end, len(d), None)
+    return L.finish()
+
+
+def _pth_layout(d, e):
+    L = _L(d, e)
+    n = L.get('H', 0)
+    L.add(0, 4, 'H2s')
+    L.arr(4, PATH_UNIT, n)
+    return L.finish()
+
+
+SPAN_NESTED = {'ESQ': _esq_layout, 'PTH': _pth_layout}
+
+
+def _eff(d, e):
+    L = _L(d, e)
+    h = L.get('12I', 0)
+    if h[0] != 0xB:
+        raise ConvertError(f'EFF: version {h[0]:#x}')
+    L.add(0, 0x30, 'I')
+    for o in sorted(set(x for x in h[1:6] if x)):
+        _idtbl(L, o)
+    spec = [(0x18 + 4 * i, h[6 + i], tag) for i, tag in enumerate(('TPL', 'ANM', 'ESQ', 'ESQ', 'PTH', 'EFM'))]
+    return _counted_tables(L, d, spec)
+
+
+def _efm(d, e):
+    L = _L(d, e)
+    x0, om, ot, omot, ox = L.get('5I', 0)
+    L.add(0, 0x14, 'I')
+    tables = [_single(4, om, 'BIN'), _single(8, ot, 'TPL')]
+    if omot:
+        tables.append(_counted_table(L, 0xC, omot, 'FCV'))
+    if ox:
+        tables.append(_single(0x10, ox, 'FCV'))
+    head_end = min(tb.ofs for tb in tables)
+    return L, head_end, tables, len(d), []
+
+
+PARSERS = {'SMD': _smd, 'SHD': _shd, 'TEX': _tex, 'ITM': _itm, 'EFF': _eff, 'EFM': _efm}
 
 
 # ---- nested conversion ----------------------------------------------------------------------------------------
@@ -180,6 +250,13 @@ def _anm_layout(d, e):
 
 
 def _conv_nested(tag, data):
+    if tag in SPAN_NESTED:
+        return apply(data, SPAN_NESTED[tag](data, '>')), {'tag': tag, 'status': 'converted', 'in': len(data),
+                                                           'out': len(data)}
+    if tag == 'EFM':
+        out, info = convert('EFM', data)
+        return out, {'tag': 'EFM', 'status': info['status'], 'in': len(data), 'out': len(out),
+                     'files': info['entries']}
     if tag == 'ANM':
         if len(data) < 0x10:
             raise ConvertError('ANM: short')
@@ -198,6 +275,11 @@ def _check_nested(tag, out, orig):
         return []           # copied verbatim (the nested converter refused it)
     if tag == 'TPL' and len(orig) >= 12 and struct.unpack_from('>3I', orig) == (0x0020AF30, 0, 0xC):
         return [] if out[:12] == struct.pack('<3I', 0x0020AF30, 0, 0xC) and out[12:] == orig[12:] else ['empty TPL']
+    if tag in SPAN_NESTED:
+        sp, sp0 = SPAN_NESTED[tag](out, '<'), SPAN_NESTED[tag](orig, '>')
+        return [] if sp == sp0 and values(out, sp, '<') == values(orig, sp0, '>') else [f'{tag} values differ']
+    if tag == 'EFM':
+        return check('EFM', out, orig)
     if tag == 'ANM':
         sp = _anm_layout(out, '<')
         return [] if values(out, sp, '<') == values(orig, _anm_layout(orig, '>'), '>') else ['ANM values differ']
@@ -226,6 +308,13 @@ def convert(tag, d: bytes):
             out.append(0)
         t_new = len(out)
         struct.pack_into('<I', out, tb.field, t_new)
+        if tb.single:
+            b, ftag = files[tb.ofs]
+            conv, rec = _conv_nested(ftag, d[tb.ofs:b])
+            rec['ofs'] = tb.ofs
+            recs.append(rec)
+            out += conv
+            continue
         hdr = bytearray(tb.gap)
         new_slots = []
         body = bytearray()
@@ -295,6 +384,10 @@ def check(tag, out: bytes, original=None) -> list:
     if len(tbs) != len(tbs0):
         return [f'{tag}: {len(tbs)} tables, original {len(tbs0)}']
     for tb, tb0 in zip(sorted(tbs, key=lambda t: t.ofs), sorted(tbs0, key=lambda t: t.ofs)):
+        if tb.single:
+            for p in _check_nested(tb.tag, out[tb.ofs:files[tb.ofs][0]], original[tb0.ofs:files0[tb0.ofs][0]]):
+                probs.append(f'{tag}/{tb.tag}@{tb0.ofs:#x}: {p}')
+            continue
         if len(tb.slots) != len(tb0.slots) or [bool(s) for s in tb.slots] != [bool(s) for s in tb0.slots]:
             probs.append(f'{tag}: table {tb.tag} slots differ')
             continue
@@ -306,4 +399,57 @@ def check(tag, out: bytes, original=None) -> list:
             i_bytes = original[a0:files0[a0][0]]
             for p in _check_nested(tb.tag, o_bytes, i_bytes):
                 probs.append(f'{tag}/{tb.tag}@{a0:#x}: {p}')
+    return probs
+
+
+# ---- EVS (event.cpp:100 EvsHeader / EvsEntry, :2868 EventMgr::SetEvs) ---------------------------------------------
+# s32 num; u32 tblOfs (relative to the EVS) -> EvsEntry {u32 ofs (event block, relative to the EVS); u32 x4}[num].
+# The event blocks are converted by container.convert_event (their size changes with TPLs) and re-laid out
+# 0x20-aligned after the head; the table offsets are rewritten.
+
+def convert_evs(d: bytes):
+    from . import container
+    n, t = struct.unpack_from('>iI', d, 0)
+    if n == 0:
+        return struct.pack('<iI', 0, t) + d[8:], {'status': 'converted', 'entries': [], 'events': 0}
+    if n < 0 or t + 8 * n > len(d):
+        raise ConvertError(f'EVS: {n} entries at {t:#x}')
+    ents = [struct.unpack_from('>II', d, t + 8 * i) for i in range(n)]
+    starts = sorted({o for o, _ in ents})
+    head_end = starts[0]
+    if t + 8 * n > head_end:
+        raise ConvertError('EVS: table overlaps the first event')
+    out = bytearray(d[:head_end])
+    struct.pack_into('<iI', out, 0, n, t)
+    new, recs = {}, []
+    for a, b in zip(starts, starts[1:] + [len(d)]):
+        while len(out) % ALIGN:
+            out.append(0)
+        conv, info = container.convert_event(d[a:b])
+        new[a] = len(out)
+        recs.append({'tag': 'EVT', 'ofs': a, 'status': info['status'], 'in': b - a, 'out': len(conv),
+                     'files': info['entries'], 'packets': info.get('packets')})
+        out += conv
+    for i, (o, x4) in enumerate(ents):
+        struct.pack_into('<II', out, t + 8 * i, new[o], x4)
+    bad = [r for r in recs if r['status'] != 'converted']
+    return bytes(out), {'status': 'partial' if bad else 'converted', 'entries': recs, 'events': n}
+
+
+def check_evs(out: bytes, original=None) -> list:
+    from . import container
+    n, t = struct.unpack_from('<iI', out, 0)
+    if original is None:
+        return [] if n >= 0 else ['EVS: negative count']
+    n0, t0 = struct.unpack_from('>iI', original, 0)
+    if (n, t) != (n0, t0):
+        return ['EVS: header differs']
+    if n == 0:
+        return [] if out[8:] == original[8:] else ['EVS: body differs']
+    probs = []
+    e_out = sorted({struct.unpack_from('<I', out, t + 8 * i)[0] for i in range(n)})
+    e_in = sorted({struct.unpack_from('>I', original, t0 + 8 * i)[0] for i in range(n)})
+    for (a, b), (a0, b0) in zip(zip(e_out, e_out[1:] + [len(out)]), zip(e_in, e_in[1:] + [len(original)])):
+        _, info = container.convert_event(original[a0:b0])
+        probs += [f'EVS@{a0:#x}: {p}' for p in container.check_event(out[a:b], original[a0:b0], info)]
     return probs

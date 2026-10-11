@@ -32,7 +32,7 @@ import archive    # tools/motion
 import yz2        # tools/motion
 
 from . import ConvertError, NotThisFormat
-from . import model, tpl, motion, sound, room, room_nested
+from . import model, tpl, motion, sound, room, room_nested, events, spans, fonts
 
 ALIGN = 0x20
 TABLE_SIZE = 0x400
@@ -53,6 +53,7 @@ ENTRY = {
     'TPL': (tpl.convert, tpl.check),
     'FCV': (motion.convert, motion.check),
     'SEQ': (motion.convert_seq, motion.check_seq),
+    'FNT': (fonts.convert, fonts.check),          # CT-14
 }
 
 
@@ -63,6 +64,7 @@ def _room_entry(tag):
 # CT-14: fixed-layout room tables (room.py), converted in place (sizes unchanged)
 for _tag in room.BUILDERS:
     ENTRY.setdefault(_tag, _room_entry(_tag))
+ENTRY['EVS'] = (None, room_nested.check_evs)
 for _tag in room_nested.PARSERS:
     ENTRY.setdefault(_tag, (None, (lambda t: lambda d, original=None: room_nested.check(t, d, original))(_tag)))
 
@@ -78,7 +80,11 @@ def convert_entry(tag: str, d: bytes):
             out, sub = convert_etm(d)
             rec['files'] = sub['entries']
             rec['status'] = sub['status']
-        elif tag in room_nested.PARSERS:      # CT-14: SMD / SHD / TEX / ITM (nested BIN / TPL, re-laid out)
+        elif tag == 'EVS':                    # CT-14: bundled event blocks, re-laid out
+            out, sub = room_nested.convert_evs(d)
+            rec['files'] = sub['entries']
+            rec['status'] = sub['status']
+        elif tag in room_nested.PARSERS:      # CT-14: SMD / SHD / TEX / ITM / EFF (nested BIN / TPL, re-laid out)
             out, sub = room_nested.convert(tag, d)
             rec['files'] = sub['entries']
             rec['status'] = sub['status']
@@ -281,8 +287,17 @@ def convert_event(d: bytes):
         o += conv
     o += b'\0' * (_align(len(o)) - len(o))
     pac_ofs, pac_size = struct.unpack_from('>II', d, 0x40)
-    info = {'kind': 'event', 'status': 'partial', 'entries': recs,
-            'packets': {'status': 'passthrough', 'ofs': pac_ofs, 'size': pac_size, 'note': 'packet stream big-endian'}}
+    info = {'kind': 'event', 'status': _status(recs), 'entries': recs}
+    try:    # CT-14: packet stream little-endian (events.py), in place
+        if pac_ofs + pac_size > first:
+            raise ConvertError('packet stream overlaps the bins')
+        sp, n = events.packet_layout(d, pac_ofs, pac_size)
+        for span in sp:
+            o[span[0]:span[1]] = spans.apply(d, [span])
+        info['packets'] = {'status': 'converted', 'ofs': pac_ofs, 'size': pac_size, 'count': n}
+    except (ConvertError, struct.error) as e:
+        info['status'] = 'partial'
+        info['packets'] = {'status': 'failed', 'ofs': pac_ofs, 'size': pac_size, 'error': str(e)}
     return bytes(o), info
 
 
@@ -373,4 +388,14 @@ def check_event(out, original, info):
         return [f'event: {e}']
     ins = archive.parse_event(original)
     tagged = [(archive.EXT_TAG.get('.' + n.rsplit('.', 1)[-1].lower(), ''), b) for n, b in ents]
-    return _check_list(tagged, ins, info['entries'])
+    probs = _check_list(tagged, ins, info['entries'])
+    if info.get('packets', {}).get('status') == 'converted':
+        try:
+            po, ps = struct.unpack_from('<II', out, 0x40)
+            sp_out, _ = events.packet_layout(out, po, ps, '<')
+            sp_in, _ = events.packet_layout(original, *struct.unpack_from('>II', original, 0x40))
+            if sp_out != sp_in or spans.values(out, sp_out, '<') != spans.values(original, sp_in, '>'):
+                probs.append('event packets differ from the original')
+        except (ConvertError, struct.error) as e:
+            probs.append(f'event packets: {e}')
+    return probs

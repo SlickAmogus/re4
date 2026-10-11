@@ -464,6 +464,69 @@ def mdt_layout(d, e='>'):
         msgs += cnt
     return L.finish(), {'languages': n, 'messages': msgs}
 
+# ---- FCS (event.cpp:77 DatFog / :82 DatFocus, ExePacket_Focus / FocusMove) ----------------------------------------
+# DatFocus 0x810: HERMITE_1_FIX ScurveNear, ScurveFar (hermite.h:20: s32 nPoint; {f32 T, Q, dQ[2]}[64]) + f32
+# LevelNear, LevelFar; every field 4 bytes (DatFog is the same two curves). The event .fcs bins.
+
+def fcs_layout(d, e='>'):
+    L = _L(d, e)
+    if len(d) < 0x810:
+        raise ConvertError(f'FCS: size {len(d):#x}')
+    L.arr(0, 'I', 0x810 // 4)
+    return L.finish(), {'curves': 2}
+
+# ---- UWF (include/id_sys.h:129 ID_FILE_HEADER, id_sys.cpp:201 IDSystem::set) -------------------------------------
+# char Version[4] "1.00"/"2.00"; u8 GroupNo, UnitNum; pad 2; UnitNum ID_DATA_V1 (0x88) / ID_DATA_V2 (0x8C) from 8:
+# u8 x 0x11 + pad 3; Vec pos@14; Vec vtx[4]@20; f32 sizeX@50, sizeY@54; u8 col0[4]@58 [V2: col1[4]@5C]; Vec rot;
+# u8 blendType, transType, maskId, flags_7F, transSub; pad 3; u32 ofs[6] (relative to the file, 0 = none): path0
+# FUNC_PATH_PTR (path.h:31 {s8 Order; pad 6; s8 nPoint; Vec Point[nPoint]}), path1 FuncPathWork {int k, n;
+# Vec alpha[n]}, curve[4] HERMITE_1_PTR (hermite.h:14 {s32 nPoint; {f32 T, Q, dQ[2]}[nPoint]}).
+
+UWF_V1 = '20s3f12fff4s3f5B3s6I'
+UWF_V2 = '20s3f12fff4s4s3f5B3s6I'
+assert _fmt_size(UWF_V1) == 0x88 and _fmt_size(UWF_V2) == 0x8C
+
+
+def uwf_layout(d, e='>'):
+    L = _L(d, e)
+    ver, grp, n = L.get('4sBB', 0)
+    if ver not in (b'1.00', b'2.00'):
+        raise ConvertError(f'UWF: version {ver!r}')
+    L.add(0, 8, None)
+    f, size = (UWF_V1, 0x88) if ver == b'1.00' else (UWF_V2, 0x8C)
+    refs = set()
+    for i in range(n):
+        o = 8 + size * i
+        L.add(o, o + size, f)
+        for k in range(6):
+            a = L.get('I', o + size - 0x18 + 4 * k)
+            if a:
+                refs.add((k, a))
+    for k, a in sorted(refs):
+        if k == 0:
+            L.add(a, a + 8, 'b6sb')
+            L.arr(a + 8, '3f', L.get('b', a + 7))
+        elif k == 1:
+            L.add(a, a + 8, 'ii')
+            L.arr(a + 8, '3f', L.get('i', a + 4))
+        else:
+            L.add(a, a + 4, 'i')
+            L.arr(a + 4, '4f', L.get('i', a))
+    return L.finish(), {'version': ver.decode(), 'units': n, 'refs': len(refs)}
+
+# ---- VIB (include/pad.h:28 VibDataTbl / VIB_INFO / VIB_DATA, pad.cpp:420 VibSetData) --------------------------------
+# u32 num; u32 ofs[num] relative to the table (0 = none) -> VIB_INFO {u32 num; VIB_DATA {u16 flag, delay, time;
+# u8 s_level, e_level}[num]}.
+
+def vib_layout(d, e='>'):
+    L = _L(d, e)
+    n = L.get('I', 0)
+    L.arr(0, 'I', 1 + n)
+    for o in sorted({L.get('I', 4 + 4 * i) for i in range(n)} - {0}):
+        L.add(o, o + 4, 'I')
+        L.arr(o + 4, '3H2B', L.get('I', o))
+    return L.finish(), {'patterns': n}
+
 
 # ---- registry -----------------------------------------------------------------------------------------
 
@@ -487,6 +550,9 @@ BUILDERS = {
     'SAT': sat_layout,
     'EAT': sat_layout,
     'MDT': mdt_layout,
+    'FCS': fcs_layout,
+    'UWF': uwf_layout,
+    'VIB': vib_layout,
 }
 
 

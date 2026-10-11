@@ -89,7 +89,9 @@ int re4_mem_init(void)
 #ifdef RE4_XBOX
     extern void* re4_xbox_alloc_contiguous(unsigned size);
     re4_mem1_base = (unsigned char*) re4_xbox_alloc_contiguous(RE4_MEM1_SIZE);
-    re4_aram_base = (unsigned char*) re4_xbox_alloc_contiguous(RE4_ARAM_SIZE);
+    // ARAM is only touched by the CPU (DVD/ARQ copies, the software audio mixer): plain heap memory,
+    // which keeps the contiguous low-48 MB window for MEM1.
+    re4_aram_base = (unsigned char*) malloc(RE4_ARAM_SIZE);
 #else
     // 32-bit Linux: map MEM1 exactly where the GameCube had it, so GC_ADDR is the identity and pointers
     // keep the sign the game tests (`(s32) p < 0` = relocated pointer, >= 0 = file offset).

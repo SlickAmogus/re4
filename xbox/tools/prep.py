@@ -61,6 +61,18 @@ REPLACEMENTS = {
     ],
     # MWCC section-placed asm declarations in the SDK's private header (ppc_eabi_init)
     'src/lib/__os.h': [(r'__declspec\(section "\.init"\) asm [^;]*;\n', '')],
+    # Byte-order views over converted data (re4conv FORMATS.md 2a "Port notes"): the converter swaps these
+    # words as u32 / u16, so the narrower views of the same bytes must list their members in LE order.
+    'include/esp.h': [
+        (r'struct EspGenPrmH \{\n    u16 xCC;           // 0xCC\n    u16 xCE;           // 0xCE\n    u16 xD0;           // 0xD0\n    u16 xD2;           // 0xD2\n\};',
+         'struct EspGenPrmH {   /* prep.py: little-endian halves of the two converted u32 words */\n    u16 xCE;\n    u16 xCC;\n    u16 xD2;\n    u16 xD0;\n};'),
+        (r'struct EspGenPrmB \{\n    u8 xCC, xCD, xCE, xCF;  // 0xCC\n    u8 xD0, xD1, xD2, xD3;  // 0xD0\n\};',
+         'struct EspGenPrmB {   /* prep.py: little-endian bytes of the two converted u32 words */\n    u8 xCF, xCE, xCD, xCC;\n    u8 xD3, xD2, xD1, xD0;\n};'),
+    ],
+    'include/espgen.h': [
+        (r'            struct \{\n                u8 x0;\n                u8 id; // 0x01 display flag bit \(GetSstDispFlag\)\n            \} b;',
+         '            struct {   /* prep.py: low byte first over the converted u16 */\n                u8 id;\n                u8 x0;\n            } b;'),
+    ],
     'include/math_sub.h': [
         (r'#define fabsf fabsf_libm\n#include <math.h>\n#undef fabsf\n.*?static inline f32 fabsf\(f32 x\)\n\{\n.*?\n\}\n',
          '#include <math.h>   /* prep.py: the GC asm inline fabsf -> compiler builtin */\n'
@@ -84,6 +96,8 @@ SITE_PATCHES = {
     # other units (and from REL modules). A standard linker does not: give them external linkage.
     'src/lib/OSTime.c': [('void __OSSetTime(OSTime time) {',
                           'static void __SetTime(OSTime t) { (void) t; }   /* prep.py: was mtspr TBL/TBU */\nvoid __OSSetTime(OSTime time) {')],
+    # RGBA bytes read as one u32: "RGB == 0" is the low 24 bits on little-endian (FORMATS.md 2a)
+    'src/game/scroll.cpp': [('(col & ~0xFF) == 0', '(col & 0x00FFFFFF) == 0')],
     'src/game/foot_shadow_tbl.cpp': [('static FootShadowTbl Em32_fs_tbl', 'FootShadowTbl Em32_fs_tbl')],
     'src/game/em_sub.cpp': [('static void EmCatchSubSet(', 'void EmCatchSubSet(')],
     'src/game/quake.cpp': [('static void QuakeKill(u8 id)', 'void QuakeKill(u8 id)')],

@@ -61,6 +61,12 @@ def classify(rel: str, d: bytes) -> str:
         return 'event'
     if ext == '.dat' and archive.is_body(d):
         return 'body'
+    if ext == '.fnt':
+        return 'FNT'
+    if ext == '.uwf':
+        return 'UWF'
+    if ext == '.eff' and d[:4] == bytes(3) + bytes([0xB]):
+        return 'EFF'
     if ext == '.tpl':
         return 'TPL'
     if ext == '.bin':
