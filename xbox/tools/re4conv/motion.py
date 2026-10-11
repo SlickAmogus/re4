@@ -14,7 +14,7 @@ Not converted: the PS2 disc is already little-endian; nothing to do with it here
 """
 import fcv  # tools/motion (sys.path set by re4conv/__init__)
 
-from . import ConvertError
+from . import ConvertError, NotThisFormat
 
 
 def convert(d: bytes) -> bytes:
@@ -24,9 +24,14 @@ def convert(d: bytes) -> bytes:
     except (ValueError, IndexError, KeyError) as e:
         raise ConvertError(f'FCV: {e}') from e
     out = fcv.serialise(m, '<')
+    be = fcv.serialise(m, '>')
+    n = len(d)
+    if n % 0x20 and len(out) == (n + 0x1F) & ~0x1F:
+        # standalone file without the archive's 0x20 padding (ss/<lang>/tel*.fcv): same bytes, unpadded
+        out, be = out[:n], be[:n]
     if len(out) != len(d):
         raise ConvertError(f'FCV: converted size {len(out):#x} != {len(d):#x}')
-    if fcv.serialise(m, '>') != d:
+    if be != d:
         raise ConvertError('FCV: big-endian re-serialisation is not byte-identical (unknown layout variant)')
     return out
 
@@ -47,7 +52,8 @@ def convert_seq(d: bytes) -> bytes:
     try:
         s = fcv.parse_seq(d, '>')
     except (ValueError, IndexError) as e:
-        raise ConvertError(f'SEQ: {e}') from e
+        # op/*.das "SEQ" entries are the terminal's operation scripts (ss_term.cpp), not SEQUENCE_FILE
+        raise NotThisFormat(f'SEQ: not a SEQUENCE_FILE ({e})') from e
     if fcv.serialise_seq(s, '>') != d:
         raise ConvertError('SEQ: big-endian re-serialisation is not byte-identical')
     out = fcv.serialise_seq(s, '<')

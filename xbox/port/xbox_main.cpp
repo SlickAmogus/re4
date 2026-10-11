@@ -14,7 +14,7 @@
 #include "re4port/re4_xbox.h"
 #include "re4port/gx_shim.h"
 
-extern "C" int re4_main(void);
+int re4_main(void);   // the game's main(), C++ linkage (renamed by re4_xbox.h)
 extern "C" int re4_mem_init(void);
 extern "C" void xbox_log_open_file(void);
 extern "C" int xbox_logging_enabled;

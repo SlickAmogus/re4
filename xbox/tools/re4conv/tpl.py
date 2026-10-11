@@ -38,7 +38,7 @@ import numpy as np
 
 import gxtex  # tools/motion (sys.path set by re4conv/__init__)
 
-from . import ConvertError
+from . import ConvertError, NotThisFormat
 
 TPL_VERSION = 0x0020AF30
 MAGIC = 0x58344552
@@ -293,7 +293,7 @@ def parse(d: bytes, endian='>'):
         raise ConvertError('TPL: too small')
     version, n, dofs = struct.unpack_from(f'{e}III', d, 0)
     if version != TPL_VERSION:
-        raise ConvertError(f'TPL: version {version:#x}')
+        raise NotThisFormat(f'TPL: version {version:#x} (not a texture palette, e.g. a 32-byte blank placeholder)')
     if n == 0 or n > 0x400 or dofs + 8 * n > len(d):
         raise ConvertError(f'TPL: {n} descriptors at {dofs:#x} do not fit')
     th_st = TEXHDR if e == '>' else TEXHDR_LE

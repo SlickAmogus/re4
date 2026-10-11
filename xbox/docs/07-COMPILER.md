@@ -112,7 +112,53 @@ are exact. `setupGQR6(v)` becomes `re4_gqr6 = v` (xbox/port/include/re4port/skin
 decode the scale from it. Float-to-int stores truncate toward zero and saturate (Gekko semantics),
 not round.
 
-## Linking the modules statically: duplicate symbols
+- **2026-10-11, the whole game links (Xbox).** `make RE4_GAME=1` builds 292 DOL-side units + 338 module
+  units (105 REL modules) into `bin/default.xbe` (14.8 MB with debug info). What it took after the asm
+  categories above:
+  - `prep.py` also preps every header (`--dir include`), writes `#line` paths with forward slashes (clang
+    reads `\o` in `"..\include\obj.h"` as an escape), handles asm levers inside macro bodies with a
+    paren-balanced scanner, strips `.section` asm, the GQR setup in `scheduler.cpp`/`main.cpp`, every PS*
+    SDK function incl. `static __PSMTX44RotAxisRadInternal`, and drops `asm("gcc_name")` labels.
+  - Placement `operator new` in `cManager.h`/`cam_extra.h` collides with libc++ `<new>`: replaced by `#include <new>`.
+  - `math_sub.h`'s `static inline fabsf` merges with pdclib's extern declaration under MSVC mode and
+    becomes an exported duplicate: replaced by `__builtin_fabsf`. The game's fdlibm and SN newlib units
+    (`src/game/*.c`, `src/lib/sf_*`) are dropped in favour of pdclib.
+  - Game C++ is built `-fno-exceptions` (no EH in the game; avoids `__CxxFrameHandler3`).
+  - The debug units of `src/game` stay in: `pLog`, `Draw_*`, `DbMenuExec` are called from everywhere.
+
+## Linking the modules statically (implemented)
+
+`tools/gen_units.py` takes the unit lists of the 114 RELs from `config/G4BE08/modules.py` (shared sources
+such as `st/em_wrap.cpp` v1/v2/v3, `wep/pl_handgun.cpp`, `st1/st1.cpp` compile once **per module**, into
+`build/mod/<unit>.<source stem>.obj`) and skips the 9 debug-tool RELs. `tools/isolate_modules.py` renames
+every defined symbol of a module to `re4m_<mod>_<sym>` (llvm-objcopy `--redefine-syms`), entry points to
+`re4mod_<mod>_prolog/_epilog/_unresolved`, keeps COMDAT/common symbols mergeable (COFF COMDAT found
+from section characteristics with llvm-readobj), and gives a strong symbol defined by two objects of the
+same module a per-object name (st4_0: r405 and r406 both define `setTexRender`; the SN linker resolved
+each locally). Each module becomes `build/mod/<mod>.lib`.
+
+`tools/link_resolve.py` closes the link: a probe link (`/demangle:no`) lists the undefined symbols and
+each is bound with `/alternatename` (written to `build/link_aliases.rsp`):
+
+| Rule | Count (2026-10-11) | Example |
+|------|-------------------|---------|
+| module import (REL→REL, and stage tables naming rooms of sibling RELs) | 223 | `?R105Init@@YAXXZ` → `re4m_st1_1_?R105Init@@YAXXZ` |
+| explicit GCC 2.95 runtime / asm-label names | 9 | `___builtin_new` → `??2@YAPAXI@Z` |
+| data type mismatch (MSVC mangles data types, GCC 2.95 did not) | 6 | `?Game@@3UGameWork@@A` → `?Game@@3UGAME_WORK@@A` |
+| asm-labelled data, return-type mismatch, C/C++ linkage | 5 | `em21_trap_cam` → `re4m_em21_?em21_trap_cam@@3UCAMERA@@A` |
+| missing implementation → `re4_unimpl_fn` / `re4_unimpl_data` (`build/link_stubs.c`) | 214 | `_AXAcquireVoice`, `_DVDFastOpen`, `_CARDProbeEx` ... |
+
+The missing list, grouped by subsystem, is `docs/sdk-symbols.md`; it is the Phase-1 implementation to-do
+list. `port/os/module_table.cpp` replaces `OSLink`/`OSUnlink`: it reads the module id from the REL header
+the game loaded (so the asset converter must keep REL headers in the `.drs`) and calls that module's
+renamed `_prolog`. `port/os/alias_thunks.cpp` forwards the two `__thiscall` members that room code calls
+through free-function asm labels, and provides empty `_ctors`/`_dtors` (the CRT runs static constructors).
+
+Known runtime caveats of this scheme: every module's static constructors run at boot instead of at
+`OSLink`; module `.bss` is not re-zeroed when a module is unlinked and linked again (rooms that rely on a
+fresh bss need their state cleared from the `OSLink` shim — audit in CT-03).
+
+## Linking the modules statically: duplicate symbols (original plan)
 
 Each REL was its own link unit, so modules legitimately define the same symbols: every `wepNN` compiles
 its own copy of `src/wep/pl_handgun.cpp` (via `#include`), every stage module links `src/st/*.cpp`, and

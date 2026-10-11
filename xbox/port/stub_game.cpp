@@ -3,7 +3,7 @@
 #include "re4port/re4_xbox.h"
 #include "re4port/gx_shim.h"
 
-extern "C" int re4_main(void)
+int re4_main(void)
 {
     re4_log("stub_game: re4_main() — game units not compiled in this build (RE4_GAME=0)\n");
     if (gx_backend) {

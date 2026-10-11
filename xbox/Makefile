@@ -36,7 +36,7 @@ RE4_CFLAGS  = -DRE4_PORT=1 -D_XBOX=1 -DXBOX -include $(PORT)/include/re4port/re4
 RE4_CFLAGS += -fno-strict-aliasing -Wno-unused-parameter -Wno-unused-variable -Wno-unused-function
 RE4_CFLAGS += -Wno-parentheses -Wno-missing-braces -Wno-int-to-pointer-cast -Wno-pointer-to-int-cast
 RE4_CFLAGS += -Wno-implicit-function-declaration -Wno-macro-redefined
-RE4_CXXFLAGS = $(RE4_CFLAGS) -std=c++20 -fpermissive -fexceptions -Wno-register -Wno-writable-strings
+RE4_CXXFLAGS = $(RE4_CFLAGS) -std=c++20 -fpermissive -fno-exceptions -Wno-register -Wno-writable-strings
 RE4_CXXFLAGS += -fno-access-control -Wno-address-of-temporary -Wno-c++11-narrowing
 
 # --- sources -----------------------------------------------------------------------------------
@@ -69,7 +69,7 @@ endif
 ifeq ($(RE4_GAME),1)
 include $(CURDIR)/units.mk
 # Game units are preprocessed into build/prep/ (asm pins stripped) before compiling.
-GAME_PREP = $(addprefix $(PREP)/,$(GAME_UNITS) $(LIB_UNITS) $(foreach m,$(MODULE_NAMES),$(MODULE_$(m)_UNITS)))
+GAME_PREP = $(addprefix $(PREP)/,$(GAME_UNITS) $(LIB_UNITS))
 $(PREP)/%: $(ROOT)/%
 	@mkdir -p $(dir $@)
 	$(PY) $(CURDIR)/tools/prep.py $< $@
@@ -80,7 +80,41 @@ $(PREP_HEADERS): $(wildcard $(ROOT)/include/*.h $(ROOT)/include/*/*.h) $(CURDIR)
 	$(PY) $(CURDIR)/tools/prep.py --dir $(ROOT)/include $(PREP)/include
 	@echo prepped > $@
 $(addsuffix .obj,$(basename $(GAME_PREP))): $(PREP_HEADERS)
-$(foreach m,$(MODULE_NAMES),$(eval $(addsuffix .obj,$(basename $(addprefix $(PREP)/,$(MODULE_$(m)_UNITS)))): CFLAGS += -D_prolog=$(m)_prolog -D_epilog=$(m)_epilog -D_unresolved=$(m)_unresolved))
+
+# --- REL modules: one prepped copy of each unit per module (shared sources compile once per module),
+# compiled by nxdk's rules, then namespaced by tools/isolate_modules.py into build/mod/<m>.lib ---
+MODBUILD = $(CURDIR)/build/mod
+MODISO   = $(CURDIR)/build/iso
+LLVM_BIN ?= C:/Program Files/LLVM/bin
+export LLVM_BIN
+# $(1) module, $(2) "src:obj" unit. The prepped copy is named <obj>.<source stem> so a source that
+# #includes a sibling of the unit's name (st/em_wrap_v2.cpp includes "em_wrap.cpp") cannot include
+# itself, and the source's own directory is on the include path for such sibling includes.
+U_SRC = $(word 1,$(subst :, ,$(1)))
+U_OBJ = $(word 2,$(subst :, ,$(1)))
+U_OUT = $(MODBUILD)/$(call U_OBJ,$(1)).$(basename $(notdir $(call U_SRC,$(1))))
+define MODULE_UNIT
+$(call U_OUT,$(2))$(suffix $(call U_SRC,$(2))): $(ROOT)/src/$(call U_SRC,$(2)) $(CURDIR)/tools/prep.py
+	@mkdir -p $$(dir $$@)
+	$(PY) $(CURDIR)/tools/prep.py $$< $$@
+$(call U_OUT,$(2)).obj: CXXFLAGS += -I$(dir $(ROOT)/src/$(call U_SRC,$(2)))
+$(call U_OUT,$(2)).obj: CFLAGS += -I$(dir $(ROOT)/src/$(call U_SRC,$(2)))
+MODULE_OBJS_$(1) += $(call U_OUT,$(2)).obj
+endef
+define MODULE_LIB
+$(foreach u,$(MODULE_$(1)),$(eval $(call MODULE_UNIT,$(1),$(u))))
+$$(MODULE_OBJS_$(1)): $(PREP_HEADERS)
+$(MODBUILD)/$(1).lib: $$(MODULE_OBJS_$(1)) $(CURDIR)/tools/isolate_modules.py
+	@echo "[ ISOLATE  ] $(1)"
+	$$(VE)$$(LIB) -out:'$$@' $$$$($(PY) $(CURDIR)/tools/isolate_modules.py $(1) $(MODISO) $$(MODULE_OBJS_$(1)))
+MODULE_LIBS += $(MODBUILD)/$(1).lib
+MODULE_ALL_OBJS += $$(MODULE_OBJS_$(1))
+endef
+$(foreach m,$(MODULE_NAMES),$(eval $(call MODULE_LIB,$(m))))
+$(MODULE_ALL_OBJS): CFLAGS += $(RE4_CFLAGS)
+$(MODULE_ALL_OBJS): CXXFLAGS += $(RE4_CXXFLAGS)
+main.exe: $(MODULE_LIBS)
+PORT_SRCS += $(PORT)/os/module_table.cpp $(PORT)/os/alias_thunks.cpp $(CURDIR)/build/link_stubs.c
 else
 PORT_SRCS += $(PORT)/stub_game.cpp
 GAME_SRCS =
@@ -99,3 +133,19 @@ NXDK_LDFLAGS += /safeseh:no
 OUTPUT_DIR = $(CURDIR)/bin
 
 include $(NXDK_DIR)/Makefile
+
+# --- link closure (tools/link_resolve.py): a probe link lists what is still undefined; the resolver
+# binds module imports / type-mismatched declarations with /alternatename and sends the rest to the
+# catch-all stubs in build/link_stubs.c (regenerated each build, doubles as the SDK to-do list) ---
+ifeq ($(RE4_GAME),1)
+RE4_RSP     = $(CURDIR)/build/link_aliases.rsp
+RE4_STUBS_C = $(CURDIR)/build/link_stubs.c
+RE4_PROBE_OBJS = $(filter-out %/link_stubs.obj,$(OBJS))
+$(RE4_RSP): $(RE4_PROBE_OBJS) $(MODULE_LIBS) $(CURDIR)/tools/link_resolve.py
+	@echo "[ RESOLVE  ] $@"
+	-$(VE)$(LD) $(NXDK_LDFLAGS) /errorlimit:0 /demangle:no -out:'$(CURDIR)/build/probe.exe' $(RE4_PROBE_OBJS) $(MODULE_LIBS) $(NXDK_DIR)/lib/xboxkrnl/libxboxkrnl.lib > $(CURDIR)/build/probe.log 2>&1
+	$(VE)sed -n 's/.*undefined symbol: //p' $(CURDIR)/build/probe.log | sort -u > $(CURDIR)/build/undefined.txt
+	$(VE)$(PY) $(CURDIR)/tools/link_resolve.py $(CURDIR)/build/undefined.txt $@ $(RE4_STUBS_C) $(RE4_PROBE_OBJS) $(MODULE_LIBS) $(NXDK_DIR)/lib
+$(RE4_STUBS_C): $(RE4_RSP)
+main.exe: LDFLAGS += @$(RE4_RSP)
+endif

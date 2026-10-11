@@ -49,7 +49,7 @@ the index ranges of the display lists are validated against the counts.
 import struct
 from array import array
 
-from . import ConvertError
+from . import ConvertError, NotThisFormat
 
 HDR = struct.Struct('>IIIIIIBBHIIIBBHIIIHHIII')
 HDR_LE = struct.Struct('<IIIIIIBBHIIIBBHIIIHHIII')
@@ -108,7 +108,7 @@ class Header:
 
 def _validate_header(h: Header, size: int):
     if h.version not in VERSIONS:
-        raise ConvertError(f'BIN: unknown version {h.version:#x}')
+        raise NotThisFormat(f'BIN: unknown version {h.version:#x} (not a cModelData)')
     if h.x4 != 0 or h.x8 > size:
         raise ConvertError(f'BIN: header words 0x04/0x08 = {h.x4:#x}/{h.x8:#x} (expected 0 and a small u32)')
     if h.pClr & 0x80000000:

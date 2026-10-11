@@ -28,3 +28,8 @@ _decomp_tools()
 
 class ConvertError(ValueError):
     """A structure the converter refuses to emit (bad magic, out-of-range offset, ...)."""
+
+
+class NotThisFormat(ConvertError):
+    """The entry's tag says one format but the bytes are another (e.g. core.das entry 11 tagged BIN is not a
+    cModelData). The container copies it verbatim and lists it as passthrough, not failed."""

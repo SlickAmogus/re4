@@ -31,7 +31,7 @@ import drs        # tools/
 import archive    # tools/motion
 import yz2        # tools/motion
 
-from . import ConvertError
+from . import ConvertError, NotThisFormat
 from . import model, tpl, motion
 
 ALIGN = 0x20
@@ -73,6 +73,9 @@ def convert_entry(tag: str, d: bytes):
         else:
             out = d
             rec['status'] = 'passthrough'
+    except NotThisFormat as e:
+        out = d
+        rec.update(status='passthrough', note=str(e))
     except (ConvertError, ValueError, IndexError, struct.error, AssertionError) as e:
         out = d
         rec.update(status='failed', error=f'{type(e).__name__}: {e}')

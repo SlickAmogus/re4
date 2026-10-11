@@ -51,8 +51,13 @@ REPLACEMENTS = {
         (r'    asm\("fcmpu 0, %0, %2.*?: "cr0"\);\n',
          '    if (x >= max) { do { x -= step; } while (x >= max); } else if (x < min) { do { x += step; } while (x < min); }\n'),
     ],
+    # The GC header renames libm's fabsf out of the way and defines a static inline asm one; under
+    # clang's MSVC mode the static inline merges with pdclib's extern declaration and becomes an
+    # exported duplicate. Use the platform fabsf instead.
     'include/math_sub.h': [
-        (r'asm volatile\("fabs %0,%1" : "=f"\((\w+)\) : "f"\((\w+)\)\);', r'\1 = __builtin_fabsf(\2);'),
+        (r'#define fabsf fabsf_libm\n#include <math.h>\n#undef fabsf\n.*?static inline f32 fabsf\(f32 x\)\n\{\n.*?\n\}\n',
+         '#include <math.h>   /* prep.py: the GC asm inline fabsf -> compiler builtin */\n'
+         '#ifndef fabsf\n#define fabsf(x) __builtin_fabsf(x)\n#endif\n'),
     ],
 }
 
@@ -86,7 +91,7 @@ PSQ_MACROS = [
      '#define PSQ_ST_S16(f, p) (*(s16*) (p) = (s16) ((f) >= 32767.0f ? 32767 : (f) <= -32768.0f ? -32768 : (int) (f)))'),
 ]
 
-SDK_C_UNITS = ('src/lib/mtx.c', 'src/lib/mtxvec.c', 'src/lib/mtx44.c', 'src/lib/vec.c', 'src/lib/quat.c')
+SDK_C_UNITS = ('src/lib/mtx.c', 'src/lib/mtxvec.c', 'src/lib/mtx44.c', 'src/lib/mtx44vec.c', 'src/lib/vec.c', 'src/lib/quat.c')
 
 # Start of an empty-template asm; the operand list is found by balancing parentheses (sub_empty_asm),
 # and the trailing `;` is optional because macro bodies (pendulum.cpp PEN_ANCHOR, em32 EM32_W_FRESH)
