@@ -1,0 +1,25 @@
+# build outputs
+build/
+bin/
+*.obj
+*.o
+*.d
+*.exe
+*.xbe
+*.iso
+*.log
+*.lib
+*.pdb
+
+# Microsoft proprietary XDK objects (not redistributable). Copy them from a local VibeDuke3D checkout:
+#   cp C:/Claude/jfduke3d-xbox/xbox_compat/dsound_objs/*.obj xbox/xbox_compat/dsound_objs/
+xbox_compat/dsound_objs/*.obj
+
+# game data never lives in the tree
+gamedata/
+data/
+*.rvz
+*.gcm
+*.drs
+*.das
+*.sfd

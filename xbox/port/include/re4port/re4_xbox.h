@@ -1,0 +1,73 @@
+/* re4_xbox.h — force-included (-include) into every game translation unit of the port.
+ *
+ * Purpose (see xbox/docs/07-COMPILER.md):
+ *   1. announce RE4_PORT so the few guarded edits in src/ activate,
+ *   2. provide the SDK types/macros the game headers expect without pulling in include/dolphin/,
+ *   3. redirect the GameCube fixed memory map into the port's arena (GC_ADDR / VALID_PTR),
+ *   4. rename symbols that clash on the new platform (main, OSReport ...).
+ *
+ * Keep it minimal: it is also seen by xbox_compat/ and the port layer itself. No standard headers.
+ */
+#ifndef RE4PORT_RE4_XBOX_H
+#define RE4PORT_RE4_XBOX_H
+
+#define RE4_PORT 1
+
+#if defined(NXDK) || defined(_XBOX)
+#define RE4_XBOX 1
+#else
+#define RE4_HOST 1
+#endif
+
+/* --- 1. Pointer width check: the game stores pointers in u32 and relocates file offsets in place. */
+#if defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ != 4
+#error "RE4 port must be built 32-bit (nxdk is i386; use -m32 on the host)"
+#endif
+
+/* --- 2. GameCube memory map (main_mem.cpp, main_sub.cpp, snd.cpp, datactrl.cpp, dvd.cpp).
+ * MEM1 is a 24 MB arena allocated at boot by the port; every literal 0x80xxxxxx the game uses for a
+ * fixed region goes through GC_ADDR(). The arena base is a variable so the host can mmap anywhere. */
+#ifdef __cplusplus
+extern "C" {
+#endif
+extern unsigned char* re4_mem1_base;   /* 24 MB, 32-byte aligned, GPU-visible on Xbox */
+extern unsigned char* re4_aram_base;   /* 16 MB "ARAM" */
+extern void re4_log(const char* fmt, ...);
+extern void re4_log_once(const char* key, const char* fmt, ...);
+extern void re4_fatal(const char* file, int line, const char* msg);
+#ifdef __cplusplus
+}
+#endif
+
+#define RE4_MEM1_SIZE 0x01800000u   /* 24 MB */
+#define RE4_ARAM_SIZE 0x01000000u   /* 16 MB */
+#define GC_ADDR(a)    ((void*) (re4_mem1_base + ((unsigned) (a) - 0x80000000u)))
+#define GC_OFS(p)     ((unsigned) ((unsigned char*) (p) - re4_mem1_base) + 0x80000000u)
+
+/* include/main_mem.h defines VALID_PTR as the 0x80000000..0x82FFFFFF check; override after the fact. */
+#define RE4_VALID_PTR(p) ((unsigned char*) (p) >= re4_mem1_base && (unsigned char*) (p) < re4_mem1_base + RE4_MEM1_SIZE)
+
+/* --- 3. Symbol renames. The game's main() is called by the port's platform main. */
+#define main re4_main
+
+/* OSReport/OSPanic/HALT go to the port log (xbox/port/os/os_shim.cpp implements OSReport itself,
+ * so no macro here; HALT is defined by the game in include/global.h and stays). */
+
+/* --- 4. Compiler shims for GCC 2.95-era code under clang. */
+/* nxdk's clang targets i386-pc-win32 (MSVC compatibility mode) and does not define __GNUC__;
+ * include/dolphin/types.h and the game's GCC-only paths need it. Defined here (first header seen by
+ * every unit) rather than with -fgnuc-version so nxdk's own libraries are unaffected. */
+#if defined(__clang__) && !defined(__GNUC__)
+#define __GNUC__ 4
+#define __GNUC_MINOR__ 2
+#endif
+#if defined(__clang__)
+#pragma clang diagnostic ignored "-Wunknown-pragmas"
+#pragma clang diagnostic ignored "-Wwritable-strings"
+#pragma clang diagnostic ignored "-Wregister"
+#endif
+
+/* The matching levers (`register T x asm("rN")`) are stripped by xbox/tools/prep.py before the
+ * compiler sees the unit; `asm("" : : "r"(x))` statements are valid on x86 and stay. */
+
+#endif /* RE4PORT_RE4_XBOX_H */

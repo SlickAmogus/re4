@@ -1,0 +1,69 @@
+# RE4 host build (Linux, 32-bit): the port layer + game units with the SDL2/OpenGL backend.
+#
+#   make -C xbox -f Makefile.host            port layer + stub game (links today)
+#   make -C xbox -f Makefile.host RE4_GAME=1 + every unit of units.mk through tools/prep.py (CT-03)
+#
+# Needs: clang (or gcc), gcc-multilib, libsdl2-dev:i386, libgl-dev:i386 (only when RE4_GL=1).
+
+CXX      ?= clang++
+CC       ?= clang
+PY       ?= python3
+ROOT      = $(abspath ..)
+PORT      = port
+BUILD     = build/host
+PREP      = $(BUILD)/prep
+RE4_GAME ?= 0
+RE4_GL   ?= 0
+
+COMMON   = -m32 -O1 -g -fno-strict-aliasing -DRE4_PORT=1 -include $(PORT)/include/re4port/re4_xbox.h \
+           -I$(PORT)/include -I$(ROOT)/include \
+           -Wno-unused-parameter -Wno-unused-variable -Wno-unused-function -Wno-parentheses \
+           -Wno-missing-braces -Wno-int-to-pointer-cast -Wno-pointer-to-int-cast -Wno-unknown-pragmas
+CFLAGS   = $(COMMON) -std=gnu11
+CXXFLAGS = $(COMMON) -std=gnu++14 -fpermissive -fexceptions -Wno-register -Wno-writable-strings
+LDFLAGS  = -m32
+LDLIBS   = -lm
+
+PORT_SRCS = $(PORT)/host/host_main.cpp $(PORT)/os/os_shim.cpp $(PORT)/gx/gx_null.cpp $(PORT)/gx/gx_stubs.cpp
+
+ifeq ($(RE4_GL),1)
+CXXFLAGS += $(shell sdl2-config --cflags) -DRE4_GL=1
+LDLIBS   += $(shell sdl2-config --libs) -lGL
+endif
+
+ifeq ($(RE4_GAME),1)
+include units.mk
+ALL_GAME = $(GAME_UNITS) $(LIB_UNITS) $(foreach m,$(MODULE_NAMES),$(MODULE_$(m)_UNITS))
+GAME_PREP = $(addprefix $(PREP)/,$(ALL_GAME))
+$(PREP)/%: $(ROOT)/%
+	@mkdir -p $(dir $@)
+	$(PY) tools/prep.py $< $@
+GAME_OBJS = $(addsuffix .o,$(GAME_PREP))
+$(foreach m,$(MODULE_NAMES),$(eval $(addsuffix .o,$(addprefix $(PREP)/,$(MODULE_$(m)_UNITS))): CPPFLAGS += -D_prolog=$(m)_prolog -D_epilog=$(m)_epilog -D_unresolved=$(m)_unresolved))
+else
+PORT_SRCS += $(PORT)/stub_game.cpp
+GAME_OBJS =
+endif
+
+PORT_OBJS = $(addprefix $(BUILD)/,$(addsuffix .o,$(PORT_SRCS)))
+
+all: $(BUILD)/re4_host
+
+$(BUILD)/re4_host: $(PORT_OBJS) $(GAME_OBJS)
+	$(CXX) $(LDFLAGS) -o $@ $^ $(LDLIBS)
+
+$(BUILD)/%.cpp.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c -o $@ $<
+$(BUILD)/%.c.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o $@ $<
+$(PREP)/%.cpp.o: $(PREP)/%.cpp
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c -o $@ $<
+$(PREP)/%.c.o: $(PREP)/%.c
+	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o $@ $<
+
+clean:
+	rm -rf $(BUILD)
+
+.PHONY: all clean
