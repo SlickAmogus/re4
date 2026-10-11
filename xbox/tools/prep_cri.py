@@ -105,8 +105,19 @@ CRI_FUNC_REPLACEMENTS = {
 # big-endian bit readers: every 32-bit window load of the MPEG bitstream gets a byte swap
 _BSWAP_PTR = (r'\b(bbuf|nbuf) = \*ptr\+\+', r'\1 = __builtin_bswap32(*ptr++)')
 
+# ADX streams are big-endian: every typed load from the stream/header bytes (`*(Sint16 *)src`,
+# `*(Uint16 *)(data + 2)`, ...) becomes an explicit big-endian load. (All such casts in these units are
+# reads of stream data; the PCM output buffers are written through plain Sint16 pointers.)
+_BE_LOAD = (r'\*\(\s*(Sint16|Uint16|Sint32|Uint32)\s*\*\)\s*(\([^()]*\)|[A-Za-z_][\w.]*(?:->[\w.]+)*)',
+            r'RE4_BE_\1(\2)')
+
 # regex replacements (re.S), prep.REPLACEMENTS format
 CRI_REPLACEMENTS = {
+    'src/lib/adx_dcd.c': [_BE_LOAD],
+    'src/lib/adx_dcd5.c': [_BE_LOAD],
+    'src/lib/adx_bsc.c': [(r'if \(\*\(Uint16 \*\)buf == 0x8000\)', 'if (RE4_BE_Uint16(buf) == 0x8000)')],
+    'src/lib/adx_sjd.c': [_BE_LOAD],
+    'src/lib/adx_tlk.c': [_BE_LOAD],
     'src/lib/cri/mpv_bit.h': [_BSWAP_PTR],
     'src/lib/mpv_emp.c': [_BSWAP_PTR],
     'src/lib/mpvabdec.c': [_BSWAP_PTR],
@@ -165,6 +176,17 @@ CRI_SITE_PATCHES = {
     # Gekko the increment `n` was still in r4 at the call; cdecl needs it passed explicitly
     'src/lib/mpv_dec.c': [('mpv->skip_func(mpv);',
                            '((void (*)(MPV, Sint32))mpv->skip_func)(mpv, (Sint32)n); /* prep_cri: r4-carried argument */')],
+    # more calls that relied on an argument left in a register by the code before them (found with
+    # a call/definition argument-count scan; the extra-argument calls are harmless under cdecl)
+    'src/lib/mwsfdsvr.c': [('extern void mwPlyChkSupply(void);', 'extern void mwPlyChkSupply(MWPLY mwply); /* prep_cri */'),
+                           ('mwPlyChkSupply();', 'mwPlyChkSupply(mwply); /* prep_cri: r3-carried argument */')],
+    # bsize = the chunk length the original had in r5 (`len = ck.len` just above)
+    'src/lib/adx_sjd.c': [('hdrlen = ADXB_DecodeHeader(adxb, ck.data);',
+                           'hdrlen = ((Sint32 (*)(ADXB, Uint8 *, Sint32))ADXB_DecodeHeader)(adxb, ck.data, len);'
+                           ' /* prep_cri: r5-carried argument */')],
+    # vrate = prm->prm1 (59940), still in r4 (p1) at the call
+    'src/lib/sfd_lib.c': [('SFTIM_Init(SFLIB_libwork.tim);',
+                           '((void (*)(void *, Sint32))SFTIM_Init)(SFLIB_libwork.tim, p1); /* prep_cri: r4-carried argument */')],
     # pdclib declares int sscanf(const char *restrict, ...)
     'src/lib/sfx_zmv.c': [('extern Sint32 sscanf(const Char8 *s, const Char8 *fmt, ...);', '#include <stdio.h> /* prep_cri */')],
     # Float64 used as an 8-byte copier: x87 fld/fstp would quiet signalling-NaN bit patterns in pixel data

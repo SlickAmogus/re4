@@ -49,6 +49,35 @@ static LONG WINAPI crash_filter(EXCEPTION_POINTERS* ep)
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
+// watchdog: if the field counter stops moving for 5 s, dump the main thread's EIP/EBP chain and exit
+static volatile LONG s_heartbeat;
+static HANDLE s_main_thread;
+static DWORD WINAPI watchdog(void*)
+{
+    LONG last = -1;
+    int still = 0;
+    for (;;) {
+        Sleep(1000);
+        LONG hb = s_heartbeat;
+        still = (hb == last) ? still + 1 : 0;
+        last = hb;
+        if (still >= 5) {
+            CONTEXT c;
+            memset(&c, 0, sizeof c);
+            c.ContextFlags = CONTEXT_FULL;
+            SuspendThread(s_main_thread);
+            GetThreadContext(s_main_thread, &c);
+            fprintf(stderr, "hang: at 0x%08x (image base 0x%08x)\n", (unsigned) c.Eip, (unsigned) (size_t) GetModuleHandleA(NULL));
+            unsigned* fp = (unsigned*) (size_t) c.Ebp;
+            for (int i = 0; i < 16 && fp && !IsBadReadPtr(fp, 8); i++) {
+                fprintf(stderr, "  ret 0x%08x\n", fp[1]);
+                fp = (unsigned*) (size_t) fp[0];
+            }
+            ExitProcess(3);
+        }
+    }
+}
+
 static int s_errors;
 static void err_cb(void* obj, const char* msg)
 {
@@ -77,6 +106,8 @@ int main(int argc, char** argv)
     }
     setvbuf(stdout, NULL, _IONBF, 0);
     SetUnhandledExceptionFilter(crash_filter);
+    DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &s_main_thread, 0, FALSE, DUPLICATE_SAME_ACCESS);
+    CreateThread(NULL, 0, watchdog, NULL, 0, NULL);
     sfd_bench_path = argv[1];
     for (int i = 2; i < argc; i++) {
         if (!strcmp(argv[i], "--pgm") && i + 1 < argc) pgm_dir = argv[++i];
@@ -145,6 +176,7 @@ int main(int argc, char** argv)
     int frames = 0, fields = 0, last_fno = -1, dup = 0, stat = 0, w = 0, h = 0;
     for (fields = 0; fields < 20 * 60 * 60; fields++) {
         sfd_bench_vsync();
+        InterlockedIncrement(&s_heartbeat);
         double a = now_ms();
         ADXM_ExecMain();
         double b = now_ms() - a;

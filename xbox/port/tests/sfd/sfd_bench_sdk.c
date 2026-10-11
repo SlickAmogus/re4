@@ -160,8 +160,14 @@ u32 ARFree(u32 *length)
 
 void ARQPostRequest(ARQRequest *req, u32 owner, u32 type, u32 prio, u32 src, u32 dst, u32 len, ARQCallback cb)
 {
-	(void) owner;
-	(void) prio;
+	req->next = NULL;
+	req->owner = owner;
+	req->type = type;
+	req->priority = prio;
+	req->source = src;
+	req->dest = dst;
+	req->length = len;
+	req->callback = cb;
 	if (s_aram == NULL) {
 		s_aram = (u8 *) calloc(1, BENCH_ARAM_SIZE);
 	}

@@ -71,6 +71,12 @@ static inline unsigned short re4_be16(const void *p)
 	return (unsigned short)((b[0] << 8) | b[1]);
 }
 
+/* typed big-endian loads (prep_cri.py _BE_LOAD) */
+#define RE4_BE_Uint16(p) ((unsigned short)re4_be16((const void *)(p)))
+#define RE4_BE_Sint16(p) ((short)re4_be16((const void *)(p)))
+#define RE4_BE_Uint32(p) ((unsigned long)re4_be32((const void *)(p)))
+#define RE4_BE_Sint32(p) ((long)re4_be32((const void *)(p)))
+
 /* an MWCC asm block prep_cri.py could not port: trap if it is ever reached */
 #ifdef __cplusplus
 extern "C"
