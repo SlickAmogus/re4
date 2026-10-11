@@ -25,7 +25,7 @@ the user to attach (a single `files/em/em10.drs` is 10 MB; `files/etc/core.das` 
 | CT-05 | TEV / GX usage catalogue                          | no         | — (done)   |
 | CT-06 | DSP-ADPCM decoder + Xbox ADPCM encoder            | no         | —          |
 | CT-07 | CRI Sofdec on x86: compile, stub asm, time it     | one .sfd   | CT-03      |
-| CT-08 | GX display-list interpreter + GX state machine    | one .bin   | CT-05      |
+| CT-08 | GX display-list interpreter + GX state machine    | one .bin   | CT-05 (done, host) |
 | CT-09 | Host OpenGL backend and TEV → GLSL compiler       | one room   | CT-08      |
 | CT-10 | Host audio backend (SDL) over the AX shim         | one bank   | CT-06      |
 

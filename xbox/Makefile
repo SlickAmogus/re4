@@ -41,7 +41,9 @@ PORT_SRCS = \
 	$(PORT)/xbox_main.cpp \
 	$(PORT)/os/os_shim.cpp \
 	$(PORT)/gx/gx_null.cpp \
-	$(PORT)/gx/gx_stubs.cpp
+	$(PORT)/gx/gx_state.cpp \
+	$(PORT)/gx/gx_dl.cpp \
+	$(PORT)/gx/gx_pipeline.cpp
 
 COMPAT_SRCS = \
 	$(COMPAT)/posix_io.c \

@@ -5,8 +5,11 @@ GameCube debug build with [nxdk](https://github.com/SlickAmogus/nxdk) and the sa
 path and NV2A rendering techniques as our [VibeDuke3D](https://github.com/SlickAmogus/VibeDuke3D) and
 [Starship](https://github.com/SlickAmogus/Starship) Xbox ports.
 
-**Status: scaffolding (Phase 0).** The platform-layer skeleton builds to a `default.xbe` with nxdk
-(startup, logging, memory arena, null GX backend, stub game loop); the game units are not compiled yet.
+**Status: scaffolding (Phase 0 → 1).** The platform-layer skeleton builds to a `default.xbe` with nxdk
+(startup, logging, memory arena, stub game loop); the game units are not compiled yet. Done so far on the
+host side: the backend-independent GX state machine and display-list interpreter with the null backend and
+its unit tests (CT-08), and the catalogue of every TEV/GX pipeline the game builds (CT-05,
+`docs/tev-catalogue.md`).
 The research, the architecture and the task breakdown are in `docs/`; PC-verifiable work is written up in
 `cloud-tasks/`.
 

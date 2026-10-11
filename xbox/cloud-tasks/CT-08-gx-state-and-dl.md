@@ -1,6 +1,11 @@
 # CT-08 — GX state machine and display-list interpreter
 
-**Status:** open · depends on CT-05 (uses its JSON), can start in parallel
+**Status:** done (host, null backend) — 2026-10-11. All 91 `include/gx.h` entry points (+ display-list
+recording) store state; FIFO/display-list decoding, primitive expansion, pipeline key/hash, texture cache
+and the null backend log are tested (`xbox/port/tests/gx`: 2522 checks, the CT-05 catalogue's 98 cases
+replay with 0 hash collisions). Remaining: nothing backend-independent; the model-`.bin` decode check
+(deliverable 6, last item) needs a converted sample and the GL/NV2A backends are CT-09/CT-10. See
+`02-GRAPHICS.md` "Implementation notes (CT-08)".
 
 ## Goal
 

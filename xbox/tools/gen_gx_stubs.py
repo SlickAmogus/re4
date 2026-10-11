@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# NOTE (CT-08): the generated gx_stubs.cpp has been superseded by xbox/port/gx/gx_state.cpp (+ gx_dl.cpp,
+# gx_pipeline.cpp), the real state machine. Kept so the entry-point list can be re-derived from include/gx.h
+# after an upstream change (compare its output against `nm` of the gx test binary).
 """Regenerates xbox/port/gx/gx_stubs.cpp from the GX prototypes in include/gx.h (the game's own
 declarations, plain-int enums). Each entry point logs "unimplemented" once. CT-08 replaces the stubs
 with the state machine; keep this script so the list can be re-derived after upstream changes."""
