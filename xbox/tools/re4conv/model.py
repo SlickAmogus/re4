@@ -3,7 +3,7 @@
 Struct truth (offsets are exact, see include/model.h):
   cModelData (0x48 bytes)
     0x00 u32 pHead      -> ModelDataHead[nParts], 16 bytes each: u8 partsNo, parentNo, x2, x3; f32 center[3]
-    0x04 u8  pad[8]     unknown, zero on the discs (the converter refuses non-zero)
+    0x04 u8  pad[8]     unknown; on the retail discs u32 0 @0x04 and a small BE u32 @0x08 (0x50 in pl00) -> both swapped as u32
     0x0C u32 pClr       vertex colours RGBA8 (4 bytes, no byte order), GX_VA_CLR0 when flags bit31
     0x10 u32 pTex       texcoords, 2 x (s16 frac 8 | u16 frac 15), stride 4
     0x14 u32 pWeight    cWeight[weight_palette_num] (8 bytes, all u8) or, when weight_ext_num > 0xFF,
@@ -27,6 +27,7 @@ Struct truth (offsets are exact, see include/model.h):
     0x3C u32 version    0x20010801 / 0x20030817 / 0x20030818
     0x40 u32 blendTbl   (version 0x20030818) 0 or: s32 count; count x {u16 dst, a, c, percent}
     0x44 u32 flipTbl    (version 0x20030818) 0 or: u32 count; u16 remap[count]  (pXFlip = flipTbl + 4)
+  Versions <= 0x20030817 have a 0x40-byte header (blendTbl/flipTbl absent; pHead is 0x40 there).
   cPolyHeader (0x20): u8 material bytes 0x00..0x17 (no byte order), u32 buff_size @0x18, u32 nPoly @0x1C;
     the GX FIFO stream follows at +0x20 and the next header at +0x20+buff_size (trans.cpp:1245).
   Stream (trans.cpp commonModelTrans:1122-1155 sets the VCD before GXCallDisplayList; shadow.cpp:1533
@@ -50,8 +51,8 @@ from array import array
 
 from . import ConvertError
 
-HDR = struct.Struct('>I8sIIIBBHIIIBBHIIIHHIII')
-HDR_LE = struct.Struct('<I8sIIIBBHIIIBBHIIIHHIII')
+HDR = struct.Struct('>IIIIIIBBHIIIBBHIIIHHIII')
+HDR_LE = struct.Struct('<IIIIIIBBHIIIBBHIIIHHIII')
 HDR_SIZE = 0x48
 VERSIONS = (0x20010801, 0x20030817, 0x20030818)
 PRIM_OPS = (0x80, 0x90, 0x98, 0xA0, 0xA8, 0xB0, 0xB8)
@@ -77,7 +78,7 @@ def _swap32(o: bytearray, start: int, nbytes: int):
 
 
 class Header:
-    __slots__ = ('pHead', 'pad4', 'pClr', 'pTex', 'pWeight', 'weight_palette_num', 'nParts', 'displist_num',
+    __slots__ = ('pHead', 'x4', 'x8', 'pClr', 'pTex', 'pWeight', 'weight_palette_num', 'nParts', 'displist_num',
                  'pParts', 'flags', 'nTex', 'shift', 'pad29', 'weight_ext_num', 'shapeOfs', 'vtxOrig', 'nrmOrig',
                  'nVtx', 'nNrm', 'version', 'blendTbl', 'flipTbl')
 
@@ -101,14 +102,15 @@ class Header:
         return 4 if self.flags & FLAG_NRM8 else 8
 
     def as_tuple(self):
-        return tuple(getattr(self, k) for k in self.__slots__)
+        t = tuple(getattr(self, k) for k in self.__slots__)
+        return t if self.has_tables else t[:-2]   # 0x40.. is pHead's data in old versions
 
 
 def _validate_header(h: Header, size: int):
     if h.version not in VERSIONS:
         raise ConvertError(f'BIN: unknown version {h.version:#x}')
-    if h.pad4 != b'\0' * 8:
-        raise ConvertError(f'BIN: header bytes 0x04..0x0C are not zero ({h.pad4.hex()}); unknown field type')
+    if h.x4 != 0 or h.x8 > size:
+        raise ConvertError(f'BIN: header words 0x04/0x08 = {h.x4:#x}/{h.x8:#x} (expected 0 and a small u32)')
     if h.pClr & 0x80000000:
         raise ConvertError('BIN: header is relocated (memory image)')
     for name in ('pHead', 'pClr', 'pTex', 'pWeight', 'pParts', 'vtxOrig', 'nrmOrig'):
@@ -127,7 +129,7 @@ def _validate_header(h: Header, size: int):
 
 def _sections(h: Header, size: int):
     """Sorted section starts (header offsets that point at data) plus the end."""
-    s = {HDR_SIZE, h.pHead, h.pClr, h.pTex, h.pWeight, h.pParts, h.vtxOrig, h.nrmOrig, size}
+    s = {HDR_SIZE if h.has_tables else 0x40, h.pHead, h.pClr, h.pTex, h.pWeight, h.pParts, h.vtxOrig, h.nrmOrig, size}
     if h.shapeOfs:
         s.add(h.shapeOfs)
     if h.has_tables:
@@ -259,7 +261,7 @@ def convert(d: bytes) -> bytes:
     h = Header(d, '>')
     starts = _sections(h, len(d))
     o = bytearray(d)
-    for ofs in (0x00, 0x0C, 0x10, 0x14, 0x1C, 0x20, 0x24, 0x2C, 0x30, 0x34, 0x3C, 0x40, 0x44):
+    for ofs in (0x00, 0x04, 0x08, 0x0C, 0x10, 0x14, 0x1C, 0x20, 0x24, 0x2C, 0x30, 0x34, 0x3C) + ((0x40, 0x44) if h.has_tables else ()):
         _swap32(o, ofs, 4)
     for ofs in (0x1A, 0x2A, 0x38, 0x3A):
         _swap16(o, ofs, 2)
@@ -280,8 +282,8 @@ def convert(d: bytes) -> bytes:
         for op, idx in prims:
             while d[q] == 0:
                 q += 1
-            _swap16(o, q + 1, 2 + 2 * nidx * len(idx))
-            q += 3 + 2 * nidx * len(idx)
+            _swap16(o, q + 1, 2 + 2 * len(idx))
+            q += 3 + 2 * len(idx)
         p += 0x20 + buff_size
     if h.shapeOfs:
         count, ents, _ = parsed['shape']
@@ -296,8 +298,10 @@ def convert(d: bytes) -> bytes:
             _swap32(o, h.flipTbl, 4)
             _swap16(o, h.flipTbl + 4, 2 * len(parsed['flip']))
     out = bytes(o)
-    if parse(out, '<') != parsed:
-        raise ConvertError('BIN: little-endian image does not decode to the original (converter bug)')
+    back = parse(out, '<')
+    if back != parsed:
+        bad = [k for k in parsed if back.get(k) != parsed[k]]
+        raise ConvertError(f'BIN: little-endian image does not decode to the original in {bad} (converter bug)')
     return out
 
 

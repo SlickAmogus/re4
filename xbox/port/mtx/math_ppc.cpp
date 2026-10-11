@@ -14,7 +14,7 @@
  * SQRTF (656): frsqrte + one Newton step, 0 for x <= 1e-5.  The port uses sqrtf: the result differs
  * from the Gekko estimate by at most a few ulp and nothing in the game depends on the exact bits.
  * LIMIT_ANGLE (790): the SDK-style wrap loop. */
-#include "math_ppc.h"
+#include "re4port/math_ppc.h"
 #include <math.h>
 
 extern "C" {

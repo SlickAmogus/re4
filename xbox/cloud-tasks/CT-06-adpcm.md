@@ -1,6 +1,16 @@
 # CT-06 — DSP-ADPCM decoder and Xbox ADPCM encoder
 
-**Status:** open
+**Status:** done — 2026-10-11. `xbox/port/snd/dspadpcm.{h,c}` (DSP-ADPCM decoder modelling the AX
+accelerator: header reload at frame boundaries, inclusive end address, loop context reload; software
+voice API) and `xbox/port/snd/xboxadpcm.{h,c}` (Xbox ADPCM 0x0069 encoder/decoder, 36 bytes/channel/64
+samples, stereo word-interleaved, best start step index on the first block) compile with host clang and
+nxdk-cc (32-bit). Tests in `xbox/port/tests/ct06/` (own Makefile; brute-force reference DSP encoder,
+1 s sine 72.5 dB, Xbox round trip 33-55 dB, address arithmetic vs `snd_iss3`/`snd_str0`/`snd_str2`) pass
+(61128 + 99 checks). `xbox/tools/re4conv/adpcm.py` is a pure-Python port, bit-identical to the C encoder,
+with `dsp_to_xbox()` converting a 1 s tone well under a second; loop padding = rotate the start to a block
+boundary + unroll (or resample, with a warning) the length to a multiple of 64; 12 unittests pass.
+Note: the header byte is low nibble = scale, high nibble = coef pair (the text below has it swapped).
+Open: the iss3 end-address quirk, see `xbox/docs/03-AUDIO.md` "ADPCM conventions (CT-06)".
 
 ## Goal
 

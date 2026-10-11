@@ -95,6 +95,41 @@ void xboxadpcm_init(XboxAdpcmState* s, uint32_t channels)
     s->channels = (channels == 2u) ? 2u : 1u;
 }
 
+/* Squared reconstruction error of block `pcm` when encoded from step index `idx` (channel `ch`). */
+static uint64_t ima_block_error(const int16_t* pcm, uint32_t nch, uint32_t ch, int32_t idx)
+{
+    XboxAdpcmChannel c;
+    uint64_t         err = 0;
+    uint32_t         k;
+
+    c.predictor  = pcm[ch];
+    c.step_index = idx;
+    for (k = 1; k < XBOXADPCM_SAMPLES_PER_BLOCK; k++) {
+        int32_t d;
+        (void) ima_compress(&c, pcm[k * nch + ch]);
+        d = pcm[k * nch + ch] - c.predictor;
+        err += (uint64_t) ((int64_t) d * d);
+    }
+    return err;
+}
+
+void xboxadpcm_choose_step_index(XboxAdpcmState* s, const int16_t* pcm)
+{
+    uint32_t ch;
+    for (ch = 0; ch < s->channels; ch++) {
+        int32_t  best = 0, i;
+        uint64_t best_err = UINT64_MAX;
+        for (i = 0; i <= 88; i++) {
+            uint64_t e = ima_block_error(pcm, s->channels, ch, i);
+            if (e < best_err) {
+                best_err = e;
+                best     = i;
+            }
+        }
+        s->ch[ch].step_index = best;
+    }
+}
+
 void xboxadpcm_encode_block(XboxAdpcmState* s, const int16_t* pcm, uint8_t* out, int16_t* recon)
 {
     uint32_t nch = s->channels;
@@ -165,6 +200,11 @@ uint32_t xboxadpcm_encode(const int16_t* pcm, uint32_t samples, uint32_t channel
                 }
             }
             src = tmp;
+        }
+        if (b == 0u) {
+            /* No history yet: pick the start step index instead of ramping up from 0 (the header
+             * stores it, so any index is legal). Later blocks carry the adapted index over. */
+            xboxadpcm_choose_step_index(&s, src);
         }
         xboxadpcm_encode_block(&s, src, out + (size_t) b * bsz,
                                recon ? recon + (size_t) base * nch : NULL);

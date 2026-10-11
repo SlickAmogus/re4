@@ -8,13 +8,17 @@
  * disc1/files/St1/r120.das (body at 0x400) and the output of the Python oracle on it
  * (`py -3 tools/motion/yz2.py r120.das r120.ref.bin`).  Without arguments that check is skipped.
  * Pure functions: builds 64-bit or -m32. */
+#define _CRT_SECURE_NO_WARNINGS 1
 #include <math.h>
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "re4port/skin.h"
-#include "math_ppc.h"
+#include "re4port/math_ppc.h"
 #include "memfill.h"
 #include "yz2.h"
 
@@ -248,25 +252,52 @@ static void test_limit_angle(void)
     CHECK(r >= -PI && r < PI, "wrap -100 -> %g", r);
 }
 
+/* The game's Coeff[] polynomial evaluated in double on an already wrapped angle. */
+static double poly_ref(double x)
+{
+    double s = 0.0, p = x;
+    int k;
+    for (k = 0; k < 10; k++) {
+        s += (double) re4_ppc_sin_coeff[k] * p;
+        p *= x;
+    }
+    return s;
+}
+
 static void test_sincos(void)
 {
+    /* NOTE: the GameCube polynomial itself is only accurate to 2.585e-3 at |x| = PI (3.4e-5 at PI/2,
+     * 2e-6 on [-1, 1]); a faithful port cannot be within 1e-5 of sinf everywhere.  So: (a) the C port vs
+     * the same polynomial in double (implementation error) and (b) vs libm with the polynomial's bound. */
     const double lo = -4.0 * M_PI, hi = 4.0 * M_PI;
     const int steps = 200000;
-    double max_s = 0, max_c = 0, at_s = 0, at_c = 0;
+    double max_s = 0, max_c = 0, at_s = 0, at_c = 0, max_ps = 0, max_pc = 0, max_s1 = 0;
     int i;
     for (i = 0; i <= steps; i++) {
         float x = (float) (lo + (hi - lo) * i / steps);
-        double es = fabs((double) re4_ppc_sinf(x) - sin((double) x));
-        double ec = fabs((double) re4_ppc_cosf(x) - cos((double) x));
+        float ws = re4_ppc_limit_angle(x);
+        float wc = re4_ppc_limit_angle(x + RE4_PPC_HALF_PI);
+        double s = re4_ppc_sinf(x), c = re4_ppc_cosf(x);
+        double es = fabs(s - sin((double) x));
+        double ec = fabs(c - cos((double) x));
+        double ps = fabs(s - poly_ref(ws));
+        double pc = fabs(c - poly_ref(wc));
         if (es > max_s) { max_s = es; at_s = x; }
         if (ec > max_c) { max_c = ec; at_c = x; }
+        if (ps > max_ps) max_ps = ps;
+        if (pc > max_pc) max_pc = pc;
+        if (x >= -1.0f && x <= 1.0f && es > max_s1) max_s1 = es;
     }
-    printf("  SINF max err %.3g at %.6f, COSF max err %.3g at %.6f over [-4pi, 4pi]\n", max_s, at_s, max_c, at_c);
-    CHECK(max_s < 1e-5, "SINF within 1e-5 of sin (max %.3g)", max_s);
-    CHECK(max_c < 1e-5, "COSF within 1e-5 of cos (max %.3g)", max_c);
-    /* exact values of the series at a few points, for regression (the polynomial, not libm) */
+    printf("  SINF max err vs sin %.3g at %.6f, COSF vs cos %.3g at %.6f over [-4pi, 4pi]\n", max_s, at_s, max_c, at_c);
+    printf("  SINF/COSF vs the polynomial in double: %.3g / %.3g; SINF vs sin on [-1,1]: %.3g\n", max_ps, max_pc,
+           max_s1);
+    CHECK(max_ps < 1e-5 && max_pc < 1e-5, "SINF/COSF within 1e-5 of the game polynomial (%.3g %.3g)", max_ps, max_pc);
+    CHECK(max_s < 2.7e-3 && max_c < 2.7e-3, "SINF/COSF within the polynomial's 2.7e-3 of sin/cos (%.3g %.3g)", max_s,
+          max_c);
+    CHECK(max_s1 < 1e-5, "SINF within 1e-5 of sin on [-1, 1] (%.3g)", max_s1);
     CHECK(re4_ppc_sinf(0.0f) == 0.0f, "SINF(0) == 0 exactly");
-    CHECK(fabsf(re4_ppc_cosf(0.0f) - 1.0f) < 1e-6f, "COSF(0) ~ 1: %g", re4_ppc_cosf(0.0f));
+    CHECK(fabs(re4_ppc_cosf(0.0f) - poly_ref(RE4_PPC_HALF_PI)) < 1e-6, "COSF(0) == P(pi/2): %.8g",
+          re4_ppc_cosf(0.0f));
     CHECK(re4_ppc_sin_coeff[0] == 1.0000012f && re4_ppc_sin_coeff[9] == 4.0048576e-08f, "Coeff table");
 }
 

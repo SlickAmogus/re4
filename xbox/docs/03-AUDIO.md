@@ -73,6 +73,42 @@ in `bio4str.hed` are rewritten by the converter.
 A software DSP-ADPCM decoder (`CT-06`) is still written: the host build uses it to play through SDL, the
 converter uses it, and it is the fallback if hardware ADPCM loop handling turns out inexact.
 
+### ADPCM conventions (CT-06)
+
+Code: `xbox/port/snd/dspadpcm.{h,c}`, `xbox/port/snd/xboxadpcm.{h,c}`, `xbox/tools/re4conv/adpcm.py`
+(tests: `xbox/port/tests/ct06/`, `xbox/tools/re4conv/tests/test_adpcm.py`).
+
+- **DSP header byte:** low nibble = scale exponent, high nibble = coefficient pair (Dolphin/libogc/
+  vgmstream; the CT-06 task text had them swapped). Nibbles high first; 64-bit accumulator.
+- **Coefficient order:** AXPBADPCM `a[8][2]` flattened = pair i is `coef[2i], coef[2i+1]`. SND_SHD
+  stores pair i as `coef[i], coef[i+8]` (`snd_str3.cpp:108-111`); deinterleave first
+  (`adpcm.shd_coefs_to_ax`).
+- **Nibble addresses:** byte = nibble/2 (`snd_str0.cpp` `read_end = nibbles / 2`); sample s of a
+  frame-aligned buffer is at `s/14*16 + s%14 + 2` (`snd_iss3.cpp:270-284`). AX `endAddress` is
+  **inclusive**: the stream ring wrap sets `end = ring + 0x3FFFF` = last nibble (`snd_str2.cpp:277-287`);
+  on a wrap the DSP reloads pred_scale/yn1/yn2 from AXPBADPCMLOOP (the stream ring uses
+  `{first header byte, 0, 0}`).
+- **Unresolved: the iss3 end-address quirk.** `iss_ax_set_para` computes
+  `end = cur + n/14*16 + n%14` with `n = length` (one-shot) or `n = loopStart + loopLength` (loop),
+  i.e. the address of the sample *one past* the last one, while the SDK's DSPADPCM tool writes
+  `ea = nibble(samples - 1)`. With an inclusive end, AX therefore plays one extra (padding) sample at
+  the end of every iss3 one-shot and `loopLength + 1` samples per loop iteration (the extra sample
+  is the first sample after the loop body). This is Nintendo's libsyn convention copied by Capcom.
+  It is not yet known whether the bank data compensates (e.g. `loopLength` stored as length - 1) or
+  the one-sample slip is just inaudible; check against real banks when the converter runs (CT-04).
+  `dspadpcm_end_nibble()` keeps the SDK `samples - 1` form; `test_dspadpcm.c` models both. The
+  converter takes loops as `(start, end_exclusive)` samples, so for iss3 pass
+  `(loopStart, loopStart + loopLength)` (i.e. without the extra sample) unless the data shows otherwise.
+- **Xbox ADPCM (0x0069):** 36 bytes/channel/block = `{s16 predictor = sample 0 verbatim, u8 step
+  index, u8 0}` + 32 bytes (nibbles 0..62 = samples 1..63, nibble 63 padding), low nibble first;
+  stereo = both headers, then 4-byte words alternating L/R. Reference bitwise IMA expansion. The
+  encoder searches the best step index for the first block (avoids the ramp from index 0); later
+  blocks carry the adapted index.
+- **Loop padding** (`adpcm.py` docstring): the loop start is rotated forward to the next 64-sample
+  boundary (lossless, the loop is periodic); a length that is not a multiple of 64 is unrolled
+  `64/gcd(L,64)` times when that stays <= 65536 samples, otherwise resampled to the nearest multiple
+  of 64 with a pitch-change warning. Loop region = blocks `[loop_block_start, loop_block_end)`.
+
 ## 5. Timing
 
 `cb_audio_frame` expects to run every 5 ms (160 samples at 32 kHz) and advances envelopes/sequences in

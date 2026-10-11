@@ -24,7 +24,8 @@ CXXFLAGS = $(COMMON) -std=gnu++14 -fpermissive -fexceptions -Wno-register -Wno-w
 LDFLAGS  = -m32
 LDLIBS   = -lm
 
-PORT_SRCS = $(PORT)/host/host_main.cpp $(PORT)/os/os_shim.cpp $(PORT)/gx/gx_null.cpp $(PORT)/gx/gx_state.cpp $(PORT)/gx/gx_dl.cpp $(PORT)/gx/gx_pipeline.cpp $(PORT)/mtx/mtx_extra.c
+PORT_SRCS = $(PORT)/host/host_main.cpp $(PORT)/os/os_shim.cpp $(PORT)/gx/gx_null.cpp $(PORT)/gx/gx_state.cpp $(PORT)/gx/gx_dl.cpp $(PORT)/gx/gx_pipeline.cpp $(PORT)/mtx/mtx_extra.c \
+            $(PORT)/mtx/math_ppc.cpp $(PORT)/gx/skin.cpp $(PORT)/os/memfill.c $(PORT)/data/yz2.c
 
 ifeq ($(RE4_GL),1)
 CXXFLAGS += $(shell sdl2-config --cflags) -DRE4_GL=1

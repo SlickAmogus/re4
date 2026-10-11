@@ -111,8 +111,10 @@ void dspadpcm_seek(DspAdpcmState* s, const uint8_t* base, uint32_t nibble_addr);
 
 /* Decode `count` samples starting at nibble address `nibble_addr` (relative to `base`). Header
  * nibbles are skipped; whenever a frame's first sample is reached the header is reloaded from
- * memory, exactly like the DSP. A mid-frame start uses s->pred_scale. Returns the sample address of
- * the next sample (never a header nibble). */
+ * memory, exactly like the DSP. A mid-frame start uses s->pred_scale. Returns the nibble address of
+ * the next sample; when the last decoded sample ended a frame this is the next frame's header
+ * nibble (16k, not yet read, so the call never touches memory past the last frame it decoded).
+ * Feeding the result back continues exactly; dspadpcm_skip_header() gives the sample address. */
 uint32_t dspadpcm_decode(DspAdpcmState* s, const uint8_t* base, uint32_t nibble_addr, uint32_t count, int16_t* out);
 
 /* Program a software voice the way iss_ax_set_para / str_ax_voice_para_set program AX. */

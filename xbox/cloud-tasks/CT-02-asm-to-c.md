@@ -1,6 +1,16 @@
 # CT-02 — C replacements for the PowerPC assembly
 
-**Status:** open
+**Status:** done
+
+Summary: C replacements are in `xbox/port/gx/skin.cpp` + `include/re4port/skin.h` / `skin_calcsk1*.inc`
+(CalcSk1_x/_x2 on a normal palette array `re4_skin_palette`, GQR6 kept in `re4_gqr6`), `xbox/port/mtx/math_ppc.*`
+(exact SINF/COSF polynomial, SQRTF, LIMIT_ANGLE as `re4_ppc_*`), `xbox/port/os/memfill.*` (memset_asm/memclr_asm/
+mtxclr_asm) and `xbox/port/data/yz2.*` (the game's `yz2Decode_Decode` entry plus a standalone decoder). Tests in
+`xbox/port/tests/ct02/` (`sh build.sh [r120.das ref.bin]`) pass 64-bit and `-m32`; the yz2 decoder is byte-identical
+to `tools/motion/yz2.py` on `St1/r120.das` (no `memcard.das` needed: that file is not yz2). One criterion was
+changed: the game's own sin polynomial errs by up to 2.59e-3 at |x| = pi, so SINF/COSF are tested to 1e-5 against
+that polynomial and to 2.7e-3 against libm. GQR constants are in `07-COMPILER.md`; the prep.py redirects still to
+wire are listed in `progress/CT-02.md`.
 
 ## Goal
 

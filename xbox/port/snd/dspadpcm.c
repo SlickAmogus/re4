@@ -106,13 +106,9 @@ uint32_t dspadpcm_decode(DspAdpcmState* s, const uint8_t* base, uint32_t nibble_
         out[i] = dsp_step(s, dsp_nibble_at(base, addr));
         addr++;
     }
-    /* Return a sample address: if we stopped on a header, consume it now so that a follow-up
-     * call starting at the returned address decodes with the right pred_scale. */
-    if ((addr % DSPADPCM_FRAME_NIBBLES) < 2u) {
-        addr = addr - addr % DSPADPCM_FRAME_NIBBLES;
-        s->pred_scale = dsp_header_at(base, addr);
-        addr += 2u;
-    }
+    /* Not consuming a trailing header on purpose: when the last frame was finished, `addr` is the
+     * next frame's header nibble (16k), which may lie past the end of the caller's buffer. Passing
+     * it back to dspadpcm_decode() loads that header first, so chunked decoding stays exact. */
     return addr;
 }
 

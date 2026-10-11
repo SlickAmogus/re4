@@ -89,6 +89,29 @@ The `Tools`, `t_*` modules are not compiled. `db_menu.cpp`'s table that names th
   - `assigning to 'char *' from 'const char *'` (`strstr`/`strrchr` results in xml.cpp, main_mem.cpp,
     r332.cpp): literal site patches in prep.py.
 
+### GQR constants (CT-02)
+
+Paired-single `psq_l`/`psq_st` convert through a GQR (SPR 912+n). Field layout (LSB bit numbers):
+LD_SCALE = bits 24-29 (6-bit signed), LD_TYPE = 16-18, ST_SCALE = 8-13, ST_TYPE = 0-2; types 0 f32,
+4 u8, 5 u16, 6 s8, 7 s16. Load = int * 2^-LD_SCALE; store = trunc(f * 2^ST_SCALE), saturated.
+Decoder: `re4_gqr_*` in `xbox/port/gx/skin.cpp`.
+
+| GQR | Value | Set by | Meaning | Sites that assume it | C replacement |
+|-----|-------|--------|---------|----------------------|---------------|
+| 0 | 0 (SDK) | OS | f32 | `psq_l x,y,0,0` in math_sub.cpp SINF/COSF, trans.cpp palette loads | plain float |
+| 2 | 0x00040004 | scheduler.cpp `TaskExec_hook` | u8, scale 0 | trans.cpp `PSQ_L_U8(_TO)`, Espgen42.cpp:448, espgen45.cpp:77 | `(f32)*(u8*)p` |
+| 3 | 0x00050005 | TaskExec_hook | u16, scale 0 | none found | `(f32)*(u16*)p` |
+| 4 | 0x00060006 | TaskExec_hook | s8, scale 0 | none found | `(f32)*(s8*)p` |
+| 5 | 0x00070007 | TaskExec_hook | s16, scale 0 | shape.cpp:178/179 `PSQ_L_S16`/`PSQ_ST_S16`, dbmodule.cpp:823 | `(f32)*(s16*)p`; store = trunc + clamp to s16 |
+| 6 | (shift<<24)\|(shift<<8)\|0x00070007 | trans.cpp:750 `setupGQR6(d->shift)` | s16 fixed point, scale `shift` | `CalcSk1_x` positions | `re4_calcsk1_s16(.., re4_gqr6)` |
+| 6 | 0x32073207 | trans.cpp:771 | s16, scale 50 = -14 (load x2^14, store x2^-14) | `CalcSk1_x` on normals: the scale makes the translation column negligible | same |
+| 6 | 0x20062006 | trans.cpp:776 | s8, scale 32 = -32 (load x2^32, store x2^-32) | `CalcSk1_x2` on s8 normals, same trick | `re4_calcsk1_s8(.., re4_gqr6)` |
+
+GQR2-5 never change after `TaskExec_hook`, so on x86 the `mtspr` block is a no-op and the casts above
+are exact. `setupGQR6(v)` becomes `re4_gqr6 = v` (xbox/port/include/re4port/skin.h); the skinning loops
+decode the scale from it. Float-to-int stores truncate toward zero and saturate (Gekko semantics),
+not round.
+
 ## Linking the modules statically: duplicate symbols
 
 Each REL was its own link unit, so modules legitimately define the same symbols: every `wepNN` compiles

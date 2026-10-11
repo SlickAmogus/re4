@@ -47,7 +47,11 @@ PORT_SRCS = \
 	$(PORT)/gx/gx_state.cpp \
 	$(PORT)/gx/gx_dl.cpp \
 	$(PORT)/gx/gx_pipeline.cpp \
-	$(PORT)/mtx/mtx_extra.c
+	$(PORT)/mtx/mtx_extra.c \
+	$(PORT)/mtx/math_ppc.cpp \
+	$(PORT)/gx/skin.cpp \
+	$(PORT)/os/memfill.c \
+	$(PORT)/data/yz2.c
 
 COMPAT_SRCS = \
 	$(COMPAT)/posix_io.c \

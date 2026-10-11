@@ -83,7 +83,7 @@ static void test_hand_vector(void)
 
     for (i = 0; i < 16; i++) coef[i] = (uint16_t) dspadpcm_ref_test_coef[i];
     dspadpcm_init(&s, coef, hand_frames[0], 0, 0);
-    CHECK_EQ_U32(dspadpcm_decode(&s, hand_frames, 2u, 28u, out), 2u + 32u);
+    CHECK_EQ_U32(dspadpcm_decode(&s, hand_frames, 2u, 28u, out), 32u); /* header of frame 2, unread */
     for (i = 0; i < 28; i++) CHECK(out[i] == hand_expect[i]);
     /* frame API gives the same */
     dspadpcm_init(&s, coef, 0, 0, 0);
@@ -94,7 +94,7 @@ static void test_hand_vector(void)
     dspadpcm_init(&s, coef, 0, 0, 0);
     dspadpcm_decode(&s, hand_frames, 0u, 28u, out);
     for (i = 0; i < 28; i++) CHECK(out[i] == hand_expect[i]);
-    /* the state's pred_scale is the last header read */
+    /* the state's pred_scale is the last header read (frame B; frame 2 past the buffer is not read) */
     CHECK(s.pred_scale == 0x10);
 }
 
@@ -126,7 +126,7 @@ static void test_sine_roundtrip(void)
     /* one linear decode from the first sample address */
     dspadpcm_init(&s, coef_u16, frames[0], 0, 0);
     addr = dspadpcm_decode(&s, frames, 2u, SAMPLES, dec);
-    CHECK_EQ_U32(addr, dspadpcm_sample_to_nibble(SAMPLES));
+    CHECK_EQ_U32(dspadpcm_skip_header(addr), dspadpcm_sample_to_nibble(SAMPLES));
     snr = ct06_snr_db(pcm, dec, SAMPLES);
     printf("  dspadpcm_decode SNR vs sine: %.1f dB\n", snr);
     CHECK(snr > 30.0);
@@ -149,7 +149,7 @@ static void test_sine_roundtrip(void)
             uint32_t n = chunks[i];
             if (pos + n > SAMPLES) n = SAMPLES - pos;
             addr = dspadpcm_decode(&s, frames, addr, n, dec + pos);
-            CHECK_EQ_U32(addr, dspadpcm_sample_to_nibble(pos + n));
+            CHECK_EQ_U32(dspadpcm_skip_header(addr), dspadpcm_sample_to_nibble(pos + n));
             pos += n;
         }
         CHECK(memcmp(dec, recon, SAMPLES * sizeof(int16_t)) == 0);

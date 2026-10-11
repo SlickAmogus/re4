@@ -46,7 +46,7 @@ REPLACEMENTS = {
         (r'    asm\("frsqrte 2, %1.*?"fr2", "fr3", "fr4"\);\n',
          '    r = __builtin_sqrtf(x); (void) half; (void) three;   /* prep.py: SDK frsqrte + Newton */\n'),
         (r'    asm volatile\(\n        "lis 9, Coeff@ha.*?"ps_sum0 %0, 4, 4, 4"\n        : "=f"\(r\)\n        : "f"\(x\)\n        : "r9", "r10", "r11", "fr2", "fr3", "fr4", "fr5"\);\n',
-         '    r = __builtin_sinf(x);   /* prep.py: paired-single Taylor series; CT-02 ports the exact polynomial */\n'),
+         '    r = re4_ppc_sin_series(x);   /* prep.py: the game\'s paired-single series, port/mtx/math_ppc.cpp (CT-02) */\n'),
         # COSF carries the same block after `x = LIMIT_ANGLE(x + pi/2)`, so the rule above covers it too
         (r'    asm\("fcmpu 0, %0, %2.*?: "cr0"\);\n',
          '    if (x >= max) { do { x -= step; } while (x >= max); } else if (x < min) { do { x += step; } while (x < min); }\n'),
@@ -62,26 +62,87 @@ SITE_PATCHES = {
     'src/game/main_mem.cpp': [("name = strrchr(file, '/');", "name = (char*) strrchr(file, '/');")],
     'src/st3/r332.cpp': [('p = strstr(', 'p = (char*) strstr(')],
     'src/game/esp0a.cpp': [('AddOtWorldPos(e, Esp0a_Trans2,', 'AddOtWorldPos(e, (void (*)(void*)) Esp0a_Trans2,')],
+    # skinning palette lived in locked cache at 0xE0000000 (CT-02); the port keeps it in re4_skin_palette
+    'src/game/trans.cpp': [('PSMTXReorder(m, (f32(*)[3]) (0xE0000000 + i * 0x30));', 'PSMTXReorder(m, RE4_SKIN_PALETTE(i));')],
 }
+
+# headers a unit needs for the port replacements above, inserted after the `#line 1` marker
+PREPEND = {
+    'src/game/trans.cpp': '#include "re4port/skin.h"\n#line 1\n',
+    'src/game/math_sub.cpp': '#include "re4port/math_ppc.h"\n#line 1\n',
+}
+
+# `RET Name(args) asm("gcc295_mangled");` aliases (15 sites): the GCC 2.95 names do not exist under
+# clang, so the label is dropped and xbox/port/os/alias_thunks.cpp defines Name as a forwarder.
+ALIAS_LABEL = re.compile(r'\)\s*asm\("[A-Za-z_][A-Za-z0-9_]*"\)\s*;')
 
 PSQ_MACROS = [
     # trans.cpp / shape.cpp / espgen: paired-single quantised loads become plain conversions
     (re.compile(r'#define PSQ_L_U8\(p\) .*'), '#define PSQ_L_U8(p) ((f32) *(const u8*) (p))'),
     (re.compile(r'#define PSQ_L_U8_TO\(dst, p\) .*'), '#define PSQ_L_U8_TO(dst, p) ((dst) = (f32) *(const u8*) (p))'),
     (re.compile(r'#define PSQ_L_S16\(p\) .*'), '#define PSQ_L_S16(p) ((f32) *(const s16*) (p))'),
-    (re.compile(r'#define PSQ_ST_S16\(f, p\) .*'), '#define PSQ_ST_S16(f, p) (*(s16*) (p) = (s16) (f))'),
+    # psq_st saturates to the s16 range on Gekko
+    (re.compile(r'#define PSQ_ST_S16\(f, p\) .*'),
+     '#define PSQ_ST_S16(f, p) (*(s16*) (p) = (s16) ((f) >= 32767.0f ? 32767 : (f) <= -32768.0f ? -32768 : (int) (f)))'),
 ]
 
 SDK_C_UNITS = ('src/lib/mtx.c', 'src/lib/mtxvec.c', 'src/lib/mtx44.c', 'src/lib/vec.c', 'src/lib/quat.c')
 
-# The `;` is optional: inside a macro body (pendulum.cpp PEN_ANCHOR) the lever has none, and the
-# operand list never contains `;` or `#` (so the match cannot run into the next line of a macro).
-EMPTY_ASM = re.compile(r'\basm\s*(?:volatile\s*)?\(\s*""\s*(?P<ops>:[^;#]*)?\)[ \t]*;?')
+# Start of an empty-template asm; the operand list is found by balancing parentheses (sub_empty_asm),
+# and the trailing `;` is optional because macro bodies (pendulum.cpp PEN_ANCHOR, em32 EM32_W_FRESH)
+# leave it to the use site.
+EMPTY_ASM_START = re.compile(r'\basm\s*(?:volatile\s*)?\(\s*""\s*')
+
+
+class _AsmMatch:
+    def __init__(self, whole, ops):
+        self._whole, self._ops = whole, ops
+
+    def group(self, name=0):
+        return self._ops if name == 'ops' else self._whole
+
+
+def sub_empty_asm(text):
+    out = []
+    pos = 0
+    for m in EMPTY_ASM_START.finditer(text):
+        if m.start() < pos:
+            continue
+        depth = 1
+        j = m.start() + text[m.start():m.end()].index('(') + 1
+        in_str = False
+        while j < len(text) and depth:
+            ch = text[j]
+            if ch == '"' and text[j - 1] != '\\':
+                in_str = not in_str
+            elif not in_str:
+                if ch == '(':
+                    depth += 1
+                elif ch == ')':
+                    depth -= 1
+            j += 1
+        inner = text[m.end():j - 1].strip()
+        end = j
+        k = j
+        while k < len(text) and text[k] in ' \t':
+            k += 1
+        has_semi = k < len(text) and text[k] == ';'
+        if has_semi:
+            end = k + 1
+        rep = rewrite_empty_asm(_AsmMatch(text[m.start():end], inner if inner.startswith(':') else None))
+        if not has_semi and rep.endswith(';'):
+            rep = rep[:-1]
+        out.append(text[pos:m.start()])
+        out.append(rep)
+        pos = end
+    out.append(text[pos:])
+    return ''.join(out)
 # top-level section/alignment levers (`asm(".section .sdata; .balign 8");`): x86 has no .sdata
-SECTION_ASM = re.compile(r'^asm\("\s*\.section [^"]*"\);[ \t]*\n', re.M)
+SECTION_ASM = re.compile(r'^asm\("\s*\.section (?:[^"\\]|\\.)*"\);[ \t]*\n', re.M)
 
 # `asm void PSVECAdd(...) {` (MWCC) and `void PSVECScale(register ...) {` (C body with asm blocks)
-PS_FUNC = re.compile(r'^(?:asm\s+)?(?:void|f32|u32|int)\s+PS\w+\s*\([^)]*\)\s*\{', re.M)
+# also `static void __PSMTX44RotAxisRadInternal(...)` helpers
+PS_FUNC = re.compile(r'^(?:static\s+)?(?:asm\s+)?(?:void|f32|u32|int)\s+_*PS(?:MTX|VEC|QUAT)\w*\s*\([^)]*\)\s*\{', re.M)
 
 
 def split_operands(s):
@@ -155,8 +216,9 @@ def strip_ps_functions(text):
 def prep(text, path):
     upath = path.replace('\\', '/')
     text = re.sub(r'\s*asm\("f?r\d+"\)', '', text)            # 1. register pins
-    text = EMPTY_ASM.sub(rewrite_empty_asm, text)            # 2. codeless levers
+    text = sub_empty_asm(text)                               # 2. codeless levers
     text = SECTION_ASM.sub('', text)
+    text = ALIAS_LABEL.sub(');', text)
     for pat, rep in PSQ_MACROS:
         text = pat.sub(rep, text)
     for suffix, rules in REPLACEMENTS.items():                # 3. asm bodies
@@ -183,6 +245,10 @@ def prep_file(src, out):
     os.makedirs(os.path.dirname(out) or '.', exist_ok=True)
     with open(out, 'w', encoding='utf-8', errors='surrogateescape', newline='\n') as f:
         f.write('#line 1 "%s"\n' % src.replace('\\', '/'))   # forward slashes: clang reads \o as an escape
+        upath = src.replace('\\', '/')
+        for suffix, head in PREPEND.items():
+            if upath.endswith(suffix):
+                f.write(head)
         f.write(prep(text, src))
 
 

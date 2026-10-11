@@ -67,6 +67,10 @@ static inline uint32_t xboxadpcm_encoded_size(uint32_t samples, uint32_t channel
 /* Reset the state (step index 0, predictor 0). `channels` must be 1 or 2. */
 void xboxadpcm_init(XboxAdpcmState* s, uint32_t channels);
 
+/* Set each channel's step index to the one (0..88) that encodes block `pcm` (64 interleaved frames)
+ * with the least squared error. xboxadpcm_encode() does this for the first block only. */
+void xboxadpcm_choose_step_index(XboxAdpcmState* s, const int16_t* pcm);
+
 /* Encode one block: `pcm` holds 64 interleaved frames (64 * channels int16). `out` receives
  * 36 * channels bytes. If `recon` is not NULL it receives the 64 * channels reconstructed samples
  * (what a decoder will produce). The step index carries over between blocks; the predictor is

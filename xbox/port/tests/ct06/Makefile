@@ -2,15 +2,18 @@
 #
 #   make -C xbox/port/tests/ct06 test                        (Linux: gcc/clang)
 #   make -C xbox/port/tests/ct06 test CC="C:/Program Files/LLVM/bin/clang.exe"   (Windows, MSYS2 make)
-#   py -3 xbox/port/tests/ct06/test_adpcm.py                 (Python wrapper test; or pytest on it)
+#   cd xbox/tools && py -3 -m unittest re4conv.tests.test_adpcm   (Python wrapper test)
 
 CC ?= clang
 SND = ../../snd
 CFLAGS = -std=c99 -O1 -g -Wall -Wextra -Wno-unused-function -I$(SND)
 LDLIBS = -lm
 EXE :=
-ifeq ($(OS),Windows_NT)
+ifneq ($(filter Windows_NT,$(OS))$(filter MINGW% MSYS% CYGWIN%,$(shell uname -s 2>/dev/null)),)
 EXE := .exe
+# Windows clang: libm is part of the MSVC CRT (no m.lib); use lld-link because MSVC link.exe
+# fails to create its temp file when launched from MSYS2 make (LNK1104 on a temp file under C:/Windows).
+LDLIBS := -fuse-ld=lld
 endif
 
 all: ct06_dsp$(EXE) ct06_xbox$(EXE)
