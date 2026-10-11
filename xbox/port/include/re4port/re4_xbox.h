@@ -108,4 +108,15 @@ extern void re4_fatal(const char* file, int line, const char* msg);
 /* The matching levers (`register T x asm("rN")`) are stripped by xbox/tools/prep.py before the
  * compiler sees the unit; `asm("" : : "r"(x))` statements are valid on x86 and stay. */
 
+/* --- 5. GX immediate-mode FIFO (CT-08). include/gx.h declares the GameCube write-gather pipe
+ * (`extern volatile WGPipe GXWGFifo[]`) and inline writers that store into it. Defining its guard here
+ * skips that block (and the SDK's dolphin/gx/GXVert.h, should a unit include it) and re4port/gx_fifo.h
+ * supplies a WGPipe-compatible proxy whose assignments append to the port's primitive buffer. C++ only:
+ * every game unit is C++ and no C unit touches the FIFO. */
+#ifdef __cplusplus
+#define __GXVERT_H__ 1
+#define _DOLPHIN_GX_GXVERT_H_ 1
+#include "re4port/gx_fifo.h"
+#endif
+
 #endif /* RE4PORT_RE4_XBOX_H */

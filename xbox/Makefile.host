@@ -16,7 +16,7 @@ RE4_GAME ?= 0
 RE4_GL   ?= 0
 
 COMMON   = -m32 -O1 -g -fno-strict-aliasing -DRE4_PORT=1 -include $(PORT)/include/re4port/re4_xbox.h \
-           -I$(PORT)/include -I$(ROOT)/include \
+           -I$(PORT)/include -I$(ROOT)/include -I$(ROOT)/src -I$(ROOT)/src/lib \
            -Wno-unused-parameter -Wno-unused-variable -Wno-unused-function -Wno-parentheses \
            -Wno-missing-braces -Wno-int-to-pointer-cast -Wno-pointer-to-int-cast -Wno-unknown-pragmas
 CFLAGS   = $(COMMON) -std=gnu11
@@ -24,7 +24,7 @@ CXXFLAGS = $(COMMON) -std=gnu++14 -fpermissive -fexceptions -Wno-register -Wno-w
 LDFLAGS  = -m32
 LDLIBS   = -lm
 
-PORT_SRCS = $(PORT)/host/host_main.cpp $(PORT)/os/os_shim.cpp $(PORT)/gx/gx_null.cpp $(PORT)/gx/gx_stubs.cpp $(PORT)/mtx/mtx_extra.c
+PORT_SRCS = $(PORT)/host/host_main.cpp $(PORT)/os/os_shim.cpp $(PORT)/gx/gx_null.cpp $(PORT)/gx/gx_state.cpp $(PORT)/gx/gx_dl.cpp $(PORT)/gx/gx_pipeline.cpp $(PORT)/mtx/mtx_extra.c
 
 ifeq ($(RE4_GL),1)
 CXXFLAGS += $(shell sdl2-config --cflags) -DRE4_GL=1

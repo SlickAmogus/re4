@@ -1,0 +1,103 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RE4 GX pipeline catalogue (CT-05)",
+  "description": "One entry per distinct GX pipeline configuration the game builds. Enum values are the names from include/dolphin/gx/GXEnum.h. A value that is only known at run time is written as a string starting with '?' (for example \"?GX_TEXCOORD0+tex_coord\") and explained in notes.",
+  "type": "object",
+  "required": ["version", "cases"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "cases": { "type": "array", "items": { "$ref": "#/definitions/case" } }
+  },
+  "definitions": {
+    "enum": { "type": "string", "minLength": 1 },
+    "case": {
+      "type": "object",
+      "required": ["id", "source", "num_tev_stages", "num_texgens", "num_chans", "stages", "nv2a"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9_]+$", "description": "unique: <unit>_<function>[_<variant>]" },
+        "source": {
+          "type": "object",
+          "required": ["file", "function", "line"],
+          "properties": {
+            "file": { "type": "string" },
+            "function": { "type": "string" },
+            "line": { "type": "integer" },
+            "variant": { "type": "string", "description": "the condition that selects this variant (flags, Shader_type, blend_mode ...)" },
+            "callers": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "purpose": { "type": "string" },
+        "num_tev_stages": { "oneOf": [ { "type": "integer", "minimum": 1, "maximum": 16 }, { "$ref": "#/definitions/enum" } ] },
+        "num_texgens": { "oneOf": [ { "type": "integer", "minimum": 0, "maximum": 8 }, { "$ref": "#/definitions/enum" } ] },
+        "num_chans": { "oneOf": [ { "type": "integer", "minimum": 0, "maximum": 2 }, { "$ref": "#/definitions/enum" } ] },
+        "stages": { "type": "array", "items": { "$ref": "#/definitions/stage" } },
+        "texgens": { "type": "array", "items": { "$ref": "#/definitions/texgen" } },
+        "channels": { "type": "array", "items": { "$ref": "#/definitions/channel" } },
+        "ind_stages": { "type": "array", "items": { "$ref": "#/definitions/ind_stage" } },
+        "kcolors": { "type": "array", "items": { "type": "object", "required": ["id", "value"], "properties": { "id": { "$ref": "#/definitions/enum" }, "value": { "type": "string" } } } },
+        "tev_regs": { "type": "array", "items": { "type": "object", "required": ["id", "value"], "properties": { "id": { "$ref": "#/definitions/enum" }, "value": { "type": "string" } } } },
+        "swap_tables": { "type": "array", "items": { "type": "object", "required": ["table", "r", "g", "b", "a"], "properties": { "table": { "$ref": "#/definitions/enum" }, "r": { "$ref": "#/definitions/enum" }, "g": { "$ref": "#/definitions/enum" }, "b": { "$ref": "#/definitions/enum" }, "a": { "$ref": "#/definitions/enum" } } } },
+        "blend": { "oneOf": [ { "type": "null" }, { "type": "object", "required": ["type", "src", "dst", "op"], "properties": { "type": { "$ref": "#/definitions/enum" }, "src": { "$ref": "#/definitions/enum" }, "dst": { "$ref": "#/definitions/enum" }, "op": { "$ref": "#/definitions/enum" } } } ] },
+        "zmode": { "oneOf": [ { "type": "null" }, { "type": "object", "required": ["compare", "func", "update"], "properties": { "compare": { "type": "boolean" }, "func": { "$ref": "#/definitions/enum" }, "update": { "type": "boolean" } } } ] },
+        "z_comp_loc": { "oneOf": [ { "type": "null" }, { "type": "boolean" } ] },
+        "alpha_compare": { "oneOf": [ { "type": "null" }, { "type": "object", "required": ["comp0", "ref0", "op", "comp1", "ref1"], "properties": { "comp0": { "$ref": "#/definitions/enum" }, "ref0": { "type": ["integer", "string"] }, "op": { "$ref": "#/definitions/enum" }, "comp1": { "$ref": "#/definitions/enum" }, "ref1": { "type": ["integer", "string"] } } } ] },
+        "cull": { "oneOf": [ { "type": "null" }, { "$ref": "#/definitions/enum" } ] },
+        "fog": { "oneOf": [ { "type": "null" }, { "type": "string" } ] },
+        "textures_bound": { "type": "integer", "minimum": 0, "maximum": 8, "description": "distinct GX_TEXMAPn referenced by the stages" },
+        "efb_copy_inputs": { "type": "array", "items": { "type": "string" }, "description": "textures that come from GXCopyTex (render-to-texture)" },
+        "notes": { "type": "string" },
+        "nv2a": {
+          "type": "object",
+          "required": ["fits_8_stages", "textures", "needs_texture_shader", "passes"],
+          "properties": {
+            "fits_8_stages": { "type": "boolean" },
+            "textures": { "type": "integer" },
+            "needs_texture_shader": { "type": "boolean" },
+            "passes": { "type": "integer", "minimum": 1 },
+            "note": { "type": "string" }
+          }
+        }
+      }
+    },
+    "stage": {
+      "type": "object",
+      "required": ["stage", "order", "color_in", "color_op", "alpha_in", "alpha_op"],
+      "additionalProperties": false,
+      "properties": {
+        "stage": { "type": "integer", "minimum": 0, "maximum": 15 },
+        "order": { "type": "object", "required": ["coord", "map", "channel"], "properties": { "coord": { "$ref": "#/definitions/enum" }, "map": { "$ref": "#/definitions/enum" }, "channel": { "$ref": "#/definitions/enum" } } },
+        "via_tev_op": { "oneOf": [ { "type": "null" }, { "$ref": "#/definitions/enum" } ], "description": "GXSetTevOp shortcut used (GX_MODULATE ...), expanded below per src/lib/GXTev.c" },
+        "color_in": { "type": "array", "minItems": 4, "maxItems": 4, "items": { "$ref": "#/definitions/enum" } },
+        "color_op": { "$ref": "#/definitions/tevop" },
+        "alpha_in": { "type": "array", "minItems": 4, "maxItems": 4, "items": { "$ref": "#/definitions/enum" } },
+        "alpha_op": { "$ref": "#/definitions/tevop" },
+        "kcsel": { "oneOf": [ { "type": "null" }, { "$ref": "#/definitions/enum" } ] },
+        "kasel": { "oneOf": [ { "type": "null" }, { "$ref": "#/definitions/enum" } ] },
+        "swap": { "oneOf": [ { "type": "null" }, { "type": "object", "required": ["ras", "tex"], "properties": { "ras": { "$ref": "#/definitions/enum" }, "tex": { "$ref": "#/definitions/enum" } } } ] },
+        "indirect": { "oneOf": [ { "type": "null" }, { "type": "object", "properties": { "kind": { "type": "string", "enum": ["direct", "warp", "bump_xyz", "tile", "other"] }, "ind_stage": { "$ref": "#/definitions/enum" }, "matrix_sel": { "$ref": "#/definitions/enum" }, "signed_offset": { "type": "boolean" }, "replace_mode": { "type": "boolean" }, "note": { "type": "string" } } } ] },
+        "notes": { "type": "string" }
+      }
+    },
+    "tevop": {
+      "type": "object",
+      "required": ["op", "bias", "scale", "clamp", "out"],
+      "properties": { "op": { "$ref": "#/definitions/enum" }, "bias": { "$ref": "#/definitions/enum" }, "scale": { "$ref": "#/definitions/enum" }, "clamp": { "type": "boolean" }, "out": { "$ref": "#/definitions/enum" } }
+    },
+    "texgen": {
+      "type": "object",
+      "required": ["coord", "func", "src", "mtx"],
+      "properties": { "coord": { "$ref": "#/definitions/enum" }, "func": { "$ref": "#/definitions/enum" }, "src": { "$ref": "#/definitions/enum" }, "mtx": { "$ref": "#/definitions/enum" }, "normalize": { "type": "boolean" }, "postmtx": { "$ref": "#/definitions/enum" }, "notes": { "type": "string" } }
+    },
+    "channel": {
+      "type": "object",
+      "required": ["chan", "enable"],
+      "properties": { "chan": { "$ref": "#/definitions/enum" }, "enable": { "type": "boolean" }, "amb_src": { "$ref": "#/definitions/enum" }, "mat_src": { "$ref": "#/definitions/enum" }, "light_mask": { "type": "string" }, "diff_fn": { "$ref": "#/definitions/enum" }, "attn_fn": { "$ref": "#/definitions/enum" }, "notes": { "type": "string" } }
+    },
+    "ind_stage": {
+      "type": "object",
+      "required": ["ind_stage", "coord", "map"],
+      "properties": { "ind_stage": { "$ref": "#/definitions/enum" }, "coord": { "$ref": "#/definitions/enum" }, "map": { "$ref": "#/definitions/enum" }, "scale_s": { "$ref": "#/definitions/enum" }, "scale_t": { "$ref": "#/definitions/enum" }, "matrix": { "type": "string" }, "notes": { "type": "string" } }
+    }
+  }
+}

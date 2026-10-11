@@ -69,6 +69,39 @@ The expensive part is per-vertex dereferencing on a 733 MHz CPU. Mitigations, in
 vertex buffers per display list + array pointer + format hash (rigid models and room geometry never
 change), decode skinned models once per frame, SSE for the s16→float conversions.
 
+### Implementation notes (CT-08)
+
+- **Files**: `gx_state.h/.cpp` (state, all 91 entry points of `include/gx.h` plus `GXBeginDisplayList`/
+  `GXEndDisplayList`, power-on defaults from `GXInit.c`, texture cache, resolve-to-backend), `gx_dl.cpp`
+  (FIFO, `GXBegin`, `GXCallDisplayList`, `gx_run_stream`, decoder, primitive expansion, `GXDrawTorus`),
+  `gx_pipeline.h/.cpp` (`GxTevProgram`, `GxPipelineKey`, FNV-1a 64 hash), `gx_vertex.h`, `gx_null.cpp` +
+  `re4port/gx_null_log.h`. Tests: `make -C xbox/port/tests gx && ./xbox/port/tests/gx`.
+- **FIFO proxy**: `re4_xbox.h` defines the guard `__GXVERT_H__` so the game's `GXWGFifo`/inline-writer
+  block in `include/gx.h` is skipped, and includes `re4port/gx_fifo.h`: `GXWGFifo` is a macro for
+  `&re4_gx_fifo`, whose members `u8..f64` are proxy objects whose `operator=` appends the value (native
+  order) to the primitive buffer opened by `GXBegin`. `GXBegin(prim, fmt, n)` computes the vertex size from
+  VCD+VAT (direct data, 1/2-byte indices, 1-byte matrix indices) and the write that reaches `n*size`
+  decodes and queues the primitive; there is no `GXEnd`. Writes with no open primitive are dropped (logged once).
+- **Flush rules**: every state setter first draws the complete vertices of a partial primitive (warning,
+  once per call site) and then emits the accumulated triangles/lines/points, so a draw always sees the
+  state in force when its vertices arrived. Consecutive primitives of one class batch into one backend
+  `draw()`; `GXCopyDisp`, `GXCopyTex`, `GXDrawDone`, `GXPixModeSync`, `GXPeekZ` and `gx_flush()` also emit.
+  `GXCopyDisp` = `end_frame()`; its clear is applied at the next frame's first draw (`begin_frame` + `clear`).
+- **Endian flag**: `gx_run_stream(.., big_endian)` applies to the stream's u16 counts/indices *and* the array
+  data they index; `gx_set_dl_big_endian()` (default 0) is what `GXCallDisplayList` uses; immediate-mode
+  vertices are always native. Byte-sequence colours (RGB8/RGBX8/RGBA6/RGBA8) have no byte order, RGB565/
+  RGBA4 are u16. `GxVertex::col` is RGBA8 with bytes r,g,b,a in memory (`GX_RGBA8()` in `gx_vertex.h`).
+- **Pipeline key**: hash covers the stage programs (up to `num_tev_stages`), texgens, the four channel
+  controls, indirect stages, swap tables, blend/z/z-comp-loc/alpha-compare/cull/fog-type/update masks/
+  dst-alpha/dither/pixel-fmt/line-width. Konst colours, TEV registers, channel colours, lights, indirect
+  matrices and fog distances are uniforms: not hashed, but `set_pipeline` is re-sent when they change.
+- **Deferred to backends (CT-09/CT-10)**: GX clip-space/z convention, cull-face mapping, texture format
+  interpretation of raw (non-`RE4X`) images (`ConvertedImage` with `data_size 0` and `nv2a_format 0xFF`),
+  EFB-copy formats, TLUT/thermal palette swaps, NBT binormal/tangent decode (unused by the game), post-
+  transform texture matrices (stored, not passed), `GXSetCopyFilter`/gamma/YScale (stored only).
+- **Known game-side issue**: `GXGetTexObjData()` returns the image pointer; `Espgen42.cpp`/`espgen45.cpp` add
+  `0x80000000` to the SDK's physical address and need an `XBOX:` guard when those units are compiled.
+
 ## 4. Textures
 
 | GX format | Bits | NV2A target                       | Notes                                  |
