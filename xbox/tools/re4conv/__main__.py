@@ -80,9 +80,15 @@ def convert_file(rel: str, d: bytes):
     out = d
     try:
         if kind == 'rel':
-            rec['status'] = 'dropped'
-            rec['note'] = 'module linked statically'
-            return None, rec
+            # code linked statically; the OSModuleHeader stays (module_table.cpp reads the module id)
+            from . import container as _c
+            out = _c.rel_header_le(d)
+            rec['status'] = 'converted'
+            rec['format'] = 'rel_header'
+            rec['note'] = 'module linked statically; OSModuleHeader kept (0x4C bytes, LE)'
+            rec['out'] = len(out)
+            rec['sha1_out'] = _sha1(out)
+            return out, rec
         if kind == 'simple':
             name, conv, _ = simple.handler(rel)
             rec['format'] = name

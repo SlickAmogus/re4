@@ -47,7 +47,25 @@ static Re4Module* find_module(unsigned id)
     return 0;
 }
 
+// OSModuleHeader (include/dolphin/os/OSModule.h, version 3, 0x4C bytes). The converter keeps it
+// little-endian in place of the REL (re4conv container.rel_header_le).
+struct ModuleHeader {
+    unsigned id, link_next, link_prev, numSections, sectionInfoOffset, nameOffset, nameSize, version;
+    unsigned bssSize, relOffset, impOffset, impSize;
+    unsigned char prologSection, epilogSection, unresolvedSection, bssSection;
+    unsigned prolog, epilog, unresolved;
+    unsigned align, bssAlign, fixSize;
+};
+static_assert(sizeof(ModuleHeader) == 0x4C, "OSModuleHeader v3");
+
+extern "C" void re4_module_unresolved(void)
+{
+    re4_fatal(__FILE__, __LINE__, "a REL module called an unresolved import");
+}
+
 // BOOL OSLink(OSModuleInfo* newModule, void* bss)
+// As on the GameCube, OSLink "relocates" the header's prolog/epilog/unresolved into addresses; the game
+// then calls DLL_PROLOG(header)() itself (read.cpp setEmModule, ReadPlayerData, ReadWepData).
 int OSLink(void* info, void* bss)
 {
     (void) bss;   // module statics live in the image's own .bss
@@ -58,8 +76,11 @@ int OSLink(void* info, void* bss)
         return 0;
     }
     re4_log("OSLink: %s (id %u)%s\n", m->name, id, m->linked ? " (relink)" : "");
+    ModuleHeader* h = (ModuleHeader*) info;
+    h->prolog = (unsigned) m->prolog;
+    h->epilog = (unsigned) m->epilog;
+    h->unresolved = (unsigned) re4_module_unresolved;
     m->linked = 1;
-    m->prolog();
     return 1;
 }
 

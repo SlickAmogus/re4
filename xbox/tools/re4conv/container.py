@@ -96,8 +96,23 @@ def _status(recs):
 
 # ---- bodies -----------------------------------------------------------------------------------------
 
-def pack_body(entries, endian='<'):
-    """[(tag4 bytes, data)] -> body bytes (rel_offset 0), entries 0x20-padded."""
+REL_HEADER_SIZE = 0x4C   # OSModuleHeader, OS_MODULE_VERSION 3 (include/dolphin/os/OSModule.h)
+
+
+def rel_header_le(rel: bytes) -> bytes:
+    """The REL's OSModuleHeader, little-endian, without code or relocations. The port links every module
+    statically (xbox/port/os/module_table.cpp): OSLink reads info.id from this header and writes the
+    module's entry points into prolog/epilog/unresolved, which the game then calls (read.cpp DLL_PROLOG).
+    Layout: u32 words 0x00..0x2C, four u8 section numbers 0x30..0x33, u32 words 0x34..0x48."""
+    h = bytearray(rel[:REL_HEADER_SIZE].ljust(REL_HEADER_SIZE, b'\0'))
+    for o in list(range(0, 0x30, 4)) + list(range(0x34, REL_HEADER_SIZE, 4)):
+        h[o:o + 4] = h[o:o + 4][::-1]
+    return bytes(h)
+
+
+def pack_body(entries, endian='<', rel=None):
+    """[(tag4 bytes, data)] -> body bytes, entries 0x20-padded. With `rel` (the original REL bytes) its
+    header (rel_header_le) is appended 0x20-aligned and rel_offset points at it; otherwise rel_offset 0."""
     count = len(entries)
     hdr_end = 16 + 8 * count
     off = _align(hdr_end)
@@ -108,13 +123,16 @@ def pack_body(entries, endian='<'):
         data = _pad(data, b'\xcd')
         datas.append(data)
         off += len(data)
-    out = bytearray(struct.pack(f'{endian}4I', count, 0, 0, 0))
+    rel_off = off if rel is not None else 0
+    out = bytearray(struct.pack(f'{endian}4I', count, rel_off, 0, 0))
     out += struct.pack(f'{endian}{count}I', *offsets)
     for tag, _ in entries:
         out += tag
     out += b'\0' * (_align(hdr_end) - len(out))
     for data in datas:
         out += data
+    if rel is not None:
+        out += _pad(rel_header_le(rel), b'\0')
     return bytes(out)
 
 
@@ -186,8 +204,8 @@ def convert_hakase(d: bytes):
         info['yz2'] = yinfo
     conv, recs = _convert_entries(a.entries)
     if a.rel is not None:
-        info['rel_dropped'] = len(a.rel)
-    body = pack_body(conv)
+        info['rel_header_kept'] = len(a.rel)     # code dropped (static link), OSModuleHeader kept
+    body = pack_body(conv, rel=a.rel)
     info['status'] = _status(recs)
     info['entries'] = recs
     return _hakase_out(a, body, info), info
@@ -207,6 +225,9 @@ def parse_hakase_le(d: bytes):
         if len(recs) > 8:
             raise ConvertError('container: record table not terminated')
     body = d[recs[0][3]:recs[0][3] + recs[0][1]]
+    rel_off = struct.unpack_from('<I', body, 4)[0]
+    if rel_off:     # kept OSModuleHeader after the entries: parse the entries without it
+        body = body[:4] + b'\0\0\0\0' + body[8:rel_off]
     ents = archive.parse_body(body, '<')
     snd = d[recs[1][3]:recs[1][3] + recs[1][1]] if len(recs) > 1 and recs[1][0] != drs.EMPTY else b''
     return sig, recs, ents, snd

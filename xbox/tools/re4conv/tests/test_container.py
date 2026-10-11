@@ -58,11 +58,16 @@ class ContainerTest(unittest.TestCase):
         ents = [(b'SEQ\0', seq()), (b'BIN\0', build_model('>')), (b'XYZ\0', _pad(b'\x12\x34raw')), (b'\0' * 4, b'')]
         d = hakase(body(ents, rel=tiny_rel()))
         out, info = container.convert_hakase(d)
-        self.assertEqual(info['rel_dropped'], 0x50)
+        self.assertEqual(info['rel_header_kept'], 0x50)
         self.assertEqual([r['status'] for r in info['entries']], ['converted', 'converted', 'passthrough', 'empty'])
         _, recs, got, _ = container.parse_hakase_le(out)
         self.assertEqual(recs[0][:4], (0, recs[0][1], 0, 0x400))
-        self.assertEqual(struct.unpack_from('<I', out, 0x400 + 4)[0], 0, 'rel_offset must be 0')
+        rel_off = struct.unpack_from('<I', out, 0x400 + 4)[0]
+        self.assertNotEqual(rel_off, 0, 'rel_offset must point at the kept OSModuleHeader')
+        self.assertEqual(rel_off % 0x20, 0)
+        hdr = out[0x400 + rel_off:0x400 + rel_off + container.REL_HEADER_SIZE]
+        self.assertEqual(hdr, container.rel_header_le(tiny_rel()))
+        self.assertEqual(struct.unpack_from('<I', hdr, 0x28)[0], 0x40, 'u32 header words are little-endian')
         self.assertEqual(got[0][1], seq('<'))
         self.assertEqual(got[1][1], build_model('<'))
         self.assertEqual(got[2][1], _pad(b'\x12\x34raw'))

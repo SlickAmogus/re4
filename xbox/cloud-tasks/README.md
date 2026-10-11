@@ -28,5 +28,16 @@ the user to attach (a single `files/em/em10.drs` is 10 MB; `files/etc/core.das` 
 | CT-08 | GX display-list interpreter + GX state machine    | one .bin   | CT-05 (done, host) |
 | CT-09 | Host OpenGL backend and TEV → GLSL compiler       | one room   | CT-08      |
 | CT-10 | Host audio backend (SDL) over the AX shim         | one bank   | CT-06      |
+| CT-11 | Host (-m32 Linux) build of the whole game         | no         | —          |
+| CT-12 | REL module lifecycle: fresh .data/.bss per load   | no         | —          |
+| CT-13 | CARD (memory card) over save files                | no         | —          |
+| CT-14 | Asset converter second pass (rooms, events, sound)| samples    | CT-04      |
+| CT-15 | NV2A backend for the GX shim (**local**, hardware) | yes        | CT-08      |
+
+Done so far (2026-10-11): CT-01, CT-02, CT-04 (first pass), CT-05, CT-06, CT-08. The Xbox build links the
+whole game; what is still unimplemented is listed in `xbox/docs/sdk-symbols.md`.
+
+Local runs use the `ct-worker` agent (`.claude/agents/ct-worker.md`): it keeps a progress file under
+`cloud-tasks/progress/` so an interrupted session can resume without losing work.
 
 Status is tracked in each task file under "Status".

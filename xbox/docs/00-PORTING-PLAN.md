@@ -135,6 +135,19 @@ Goal: sound effects, BGM streams, reverb on real hardware with 5.1 out (`03-AUDI
 - 720p/widescreen: the game already renders cinemascope bars (`cinesco.cpp`); a 16:9 projection is a
   natural upgrade once the base works.
 
+## Where things stand (2026-10-11)
+
+- **Xbox build links the whole game** (`make RE4_GAME=1`, 549 units + 105 REL modules, `07-COMPILER.md`).
+  The original M1 said "host build"; the Xbox build got there first, the host follows in CT-11.
+- Implemented: GX state machine + display-list interpreter (CT-08), PowerPC asm replacements (CT-02),
+  ADPCM codecs (CT-06), OS threads on fibers, time/alarms, VI pacing, PAD over SDL, DVD + ARAM over files,
+  REL module table, fixed-address remapping, asset converter first pass (CT-04, both discs convert).
+- Not yet: AX/AXFX audio (CT-10 + Xbox DirectSound backend), CARD (CT-13), CRI movies (CT-07), rendering
+  backends (CT-09 host GL, CT-15 NV2A), converter second pass (CT-14), module lifecycle (CT-12).
+  The exact remaining SDK surface is `sdk-symbols.md`.
+- Never run yet: the first boot test on hardware (copy `bin/default.xbe` plus the converted `files/` tree
+  to `<xbe dir>/data/files/`; the log goes to `re4.log` next to the XBE or `E:\re4\`).
+
 ## Milestones (what "done" looks like at each step)
 
 | # | Milestone                                                   | Verified on |
