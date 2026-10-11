@@ -19,10 +19,11 @@ COMPAT    = $(CURDIR)/xbox_compat
 PREP      = $(CURDIR)/build/prep
 RE4_GAME ?= 0
 RE4_AUDIO_RXDK ?= 0
+PY       ?= python3
 
 # --- include paths (NXDK_CFLAGS so they precede nxdk's; explicit nxdk paths because MSYS2 make
 # does not propagate NXDK_DIR into nxdk-cc's shell) -------------------------------------------
-RE4_INC  = -I$(PORT)/include -I$(COMPAT) -I$(ROOT)/include
+RE4_INC  = -I$(PORT)/include -I$(COMPAT) -I$(ROOT)/include -I$(ROOT)/src -I$(ROOT)/src/lib
 RE4_INC += -I$(NXDK_DIR)/lib -I$(NXDK_DIR)/lib/winapi -I$(NXDK_DIR)/lib/xboxrt/libc_extensions
 RE4_INC += -isystem $(NXDK_DIR)/lib/pdclib/include -I$(NXDK_DIR)/lib/pdclib/platform/xbox/include
 RE4_INC += -I$(NXDK_DIR)/lib/xboxrt/vcruntime -I$(NXDK_DIR)/lib/sdl/SDL2/include
@@ -35,13 +36,14 @@ RE4_CFLAGS += -fno-strict-aliasing -Wno-unused-parameter -Wno-unused-variable -W
 RE4_CFLAGS += -Wno-parentheses -Wno-missing-braces -Wno-int-to-pointer-cast -Wno-pointer-to-int-cast
 RE4_CFLAGS += -Wno-implicit-function-declaration -Wno-macro-redefined
 RE4_CXXFLAGS = $(RE4_CFLAGS) -std=c++20 -fpermissive -fexceptions -Wno-register -Wno-writable-strings
+RE4_CXXFLAGS += -fno-access-control -Wno-address-of-temporary -Wno-c++11-narrowing
 
 # --- sources -----------------------------------------------------------------------------------
 PORT_SRCS = \
 	$(PORT)/xbox_main.cpp \
 	$(PORT)/os/os_shim.cpp \
 	$(PORT)/gx/gx_null.cpp \
-	$(PORT)/gx/gx_stubs.cpp
+	$(PORT)/gx/gx_stubs.cpp \n	$(PORT)/mtx/mtx_extra.c
 
 COMPAT_SRCS = \
 	$(COMPAT)/posix_io.c \
@@ -62,7 +64,7 @@ include $(CURDIR)/units.mk
 GAME_PREP = $(addprefix $(PREP)/,$(GAME_UNITS) $(LIB_UNITS) $(foreach m,$(MODULE_NAMES),$(MODULE_$(m)_UNITS)))
 $(PREP)/%: $(ROOT)/%
 	@mkdir -p $(dir $@)
-	python3 $(CURDIR)/tools/prep.py $< $@
+	$(PY) $(CURDIR)/tools/prep.py $< $@
 GAME_SRCS = $(GAME_PREP)
 $(foreach m,$(MODULE_NAMES),$(eval $(addsuffix .obj,$(basename $(addprefix $(PREP)/,$(MODULE_$(m)_UNITS)))): CFLAGS += -D_prolog=$(m)_prolog -D_epilog=$(m)_epilog -D_unresolved=$(m)_unresolved))
 else

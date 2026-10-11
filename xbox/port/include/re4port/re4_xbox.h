@@ -50,6 +50,44 @@ extern void re4_fatal(const char* file, int line, const char* msg);
 /* --- 3. Symbol renames. The game's main() is called by the port's platform main. */
 #define main re4_main
 
+/* The SDK's paired-single matrix/vector routines (PS*) are PowerPC assembly; the game links the SDK's
+ * own C versions (C_* in src/lib mtx.c, mtxvec.c, mtx44.c, vec.c, quat.c) under the PS names.
+ * PSMTXReorder has no C version in the SDK: xbox/port/mtx/mtx_extra.c provides it. */
+#define PSMTX44MultVec C_MTX44MultVec
+#define PSMTXConcat C_MTXConcat
+#define PSMTXCopy C_MTXCopy
+#define PSMTXIdentity C_MTXIdentity
+#define PSMTXInverse C_MTXInverse
+#define PSMTXInvXpose C_MTXInvXpose
+#define PSMTXMultVec C_MTXMultVec
+#define PSMTXMultVecArray C_MTXMultVecArray
+#define PSMTXMultVecSR C_MTXMultVecSR
+#define PSMTXMultVecArraySR C_MTXMultVecArraySR
+#define PSMTXQuat C_MTXQuat
+#define PSMTXRotAxisRad C_MTXRotAxisRad
+#define PSMTXRotRad C_MTXRotRad
+#define PSMTXRotTrig C_MTXRotTrig
+#define PSMTXScale C_MTXScale
+#define PSMTXScaleApply C_MTXScaleApply
+#define PSMTXTrans C_MTXTrans
+#define PSMTXTransApply C_MTXTransApply
+#define PSMTXTranspose C_MTXTranspose
+#define PSMTX44Copy C_MTX44Copy
+#define PSMTX44Concat C_MTX44Concat
+#define PSMTX44Transpose C_MTX44Transpose
+#define PSMTX44TransApply C_MTX44TransApply
+#define PSMTX44ScaleApply C_MTX44ScaleApply
+#define PSVECAdd C_VECAdd
+#define PSVECCrossProduct C_VECCrossProduct
+#define PSVECDistance C_VECDistance
+#define PSVECDotProduct C_VECDotProduct
+#define PSVECMag C_VECMag
+#define PSVECNormalize C_VECNormalize
+#define PSVECScale C_VECScale
+#define PSVECSquareDistance C_VECSquareDistance
+#define PSVECSquareMag C_VECSquareMag
+#define PSVECSubtract C_VECSubtract
+
 /* OSReport/OSPanic/HALT go to the port log (xbox/port/os/os_shim.cpp implements OSReport itself,
  * so no macro here; HALT is defined by the game in include/global.h and stays). */
 
