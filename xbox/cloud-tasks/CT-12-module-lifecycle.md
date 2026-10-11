@@ -1,6 +1,6 @@
 # CT-12 — REL module lifecycle: fresh .data/.bss on every load
 
-**Status:** open · cloud-friendly (design + tooling), runtime check local
+**Status:** done (Xbox build, 2026-10-11) — see `07-COMPILER.md` "Module lifecycle". Host (ELF) equivalent pending CT-11.
 
 ## Problem
 

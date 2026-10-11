@@ -154,9 +154,28 @@ the game loaded (so the asset converter must keep REL headers in the `.drs`) and
 renamed `_prolog`. `port/os/alias_thunks.cpp` forwards the two `__thiscall` members that room code calls
 through free-function asm labels, and provides empty `_ctors`/`_dtors` (the CRT runs static constructors).
 
-Known runtime caveats of this scheme: every module's static constructors run at boot instead of at
-`OSLink`; module `.bss` is not re-zeroed when a module is unlinked and linked again (rooms that rely on a
-fresh bss need their state cleared from the `OSLink` shim — audit in CT-03).
+### Module lifecycle (CT-12, implemented)
+
+A REL read from disc starts with its initial `.data`, zeroed `.bss`, and runs its static constructors.
+`tools/gen_modseg.py` writes a per-module header force-included into every unit of the module:
+
+```c
+#pragma data_seg(".data$re4m_<mod>$m")
+#pragma bss_seg(".bss$re4m_<mod>$m")
+#pragma init_seg(".re4ct$re4m_<mod>$m")
+```
+
+plus a marker object defining `re4seg_{data,bss,ct}_{begin,end}` in the `$a`/`$z` subsections (renamed by
+isolation to `re4m_<mod>_re4seg_*`). lld sorts `$`-grouped sections by name, so every module's data is
+one contiguous range, and its dynamic initialisers are out of `.CRT$XCU` (the CRT no longer runs them at
+boot; verified: no module object has a `.CRT$XCU` section, 2 modules have initialisers). `llvm-objcopy`
+cannot rename COFF sections, which is why this is done with compiler pragmas.
+
+`port/os/module_table.cpp`: `re4_modules_init()` (before `re4_main`) snapshots each module's `.data`.
+`OSLink` of a freshly read header restores `.data`, zeroes `.bss` and runs the initialisers; `OSUnlink`
+saves `.data`+`.bss`, and an `OSLink` of the same header address that `dvd_shim.cpp` has not overwritten
+since (`re4_dvd_overwritten_since`) is a `cRoomData::restartRelData` and restores that saved state.
+The game calls `_prolog`/`_epilog` itself through the header (`DLL_PROLOG`, `DLL_Unlink`).
 
 ## Linking the modules statically: duplicate symbols (original plan)
 

@@ -105,13 +105,20 @@ def main():
             owners.setdefault(s, []).append(o)
     multi = {s for s, os_ in owners.items() if len(os_) > 1 and s not in weak and s not in ENTRY}
 
+    def iso(s, prefix):
+        # cdecl C names (`_foo` on COFF) keep their leading underscore so the renamed symbol is still a C
+        # name (`_re4m_<mod>_foo` = C identifier re4m_<mod>_foo); C++ / other names get a plain prefix.
+        if coff and s.startswith('_') and not s.startswith('__'):
+            return f'_{prefix}{s[1:]}'
+        return f'{prefix}{s}'
+
     def base_map():
         m = {}
         for s in syms:
             if s in ENTRY:
                 m[s] = f'{lead}re4mod_{mod}_{ENTRY[s]}'
             else:
-                m[s] = f're4m_{mod}_{s}'
+                m[s] = iso(s, f're4m_{mod}_')
         return m
 
     dst = os.path.join(out_dir, mod)
@@ -122,7 +129,7 @@ def main():
         stem = os.path.splitext(os.path.basename(o))[0].split('.')[0]
         for s in multi:
             if o in owners[s] and owners[s][0] != o:
-                m[s] = f're4m_{mod}_{stem}_{s}'
+                m[s] = iso(s, f're4m_{mod}_{stem}_')
         map_path = os.path.join(dst, f'rename{i}.map')
         with open(map_path, 'w', newline='\n') as f:
             for a in sorted(m):

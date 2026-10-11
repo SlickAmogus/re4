@@ -16,6 +16,7 @@
 
 int re4_main(void);   // the game's main(), C++ linkage (renamed by re4_xbox.h)
 extern "C" int re4_mem_init(void);
+extern "C" void re4_modules_init(void);
 extern "C" void xbox_log_open_file(void);
 extern "C" int xbox_logging_enabled;
 extern "C" const char* xbox_get_writedir(void);
@@ -49,6 +50,7 @@ int main(void)
     // Phase 0: no renderer yet; the null backend records calls to the log.
     gx_select_backend(&gx_null_backend);
 
+    re4_modules_init();   // snapshot every REL module's initial .data before the game runs (CT-12)
     int rc = re4_main();
     re4_log("re4_main returned %d\n", rc);
     Sleep(3000);

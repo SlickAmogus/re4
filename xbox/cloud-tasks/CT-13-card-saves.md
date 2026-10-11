@@ -1,6 +1,6 @@
 # CT-13 — CARD (memory card) over save files
 
-**Status:** open · cloud-friendly
+**Status:** done (local worker 2026-10-11; see progress/CT-13.md) · cloud-friendly
 
 ## Goal
 

@@ -28,4 +28,10 @@
 # define SEEK_END 2
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 int _open(const char *path, int flags, ...);
+#ifdef __cplusplus
+}
+#endif

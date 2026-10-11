@@ -108,15 +108,16 @@ def main():
     mods = sorted({os.path.splitext(os.path.basename(f))[0] for f in files
                    if f.replace('\\', '/').split('/')[-2:-1] == ['mod'] and f.endswith('.lib')}, key=len, reverse=True)
     if mods:
-        ISOLATED = re.compile(r'^re4m_(' + '|'.join(map(re.escape, mods)) + r')_(.+)$')
+        # `re4m_<mod>_<sym>` (C++ / other names) or `_re4m_<mod>_<name>` (C names keep their underscore)
+        ISOLATED = re.compile(r'^(_?)re4m_(' + '|'.join(map(re.escape, mods)) + r')_(.+)$')
 
     by_isolated = {}      # plain symbol -> [isolated names]
     data_by_name = {}     # Name -> [defined ?Name@@3... (plain or isolated)]
     cxx_by_name = {}      # Name -> [defined ?Name@@... ]
     fn_by_qname = {}      # ?Name@Scope@@ -> [defined functions]
     for s in defined:
-        m = ISOLATED.match(s)
-        plain = m.group(2) if m else s
+        m = ISOLATED.match(s) if mods else None
+        plain = (m.group(1) + m.group(3)) if m else s
         if m:
             by_isolated.setdefault(plain, []).append(s)
         dm = DATA.match(plain)

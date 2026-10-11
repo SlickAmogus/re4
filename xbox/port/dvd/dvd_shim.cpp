@@ -193,8 +193,26 @@ static void queue_done(DVDFileInfo* fi, DVDCommandBlock* cb, s32 result, int is_
     s_npending++;
 }
 
+// Recent read destinations, so module_table.cpp can tell whether a REL header was re-read from disc
+// (a fresh module load) or is the same bytes relinked after cRoomData::stopRelData (a restart).
+unsigned re4_dvd_generation;
+enum { READ_RING = 64 };
+static struct { const u8* addr; u32 len; unsigned gen; } s_reads[READ_RING];
+
+int re4_dvd_overwritten_since(const void* p, unsigned gen)
+{
+    for (int i = 0; i < READ_RING; i++) {
+        if (s_reads[i].gen > gen && (const u8*) p >= s_reads[i].addr && (const u8*) p < s_reads[i].addr + s_reads[i].len) return 1;
+    }
+    return 0;
+}
+
 int DVDReadAsyncPrio(DVDFileInfo* fi, void* addr, s32 length, s32 offset, DVDCallback cb, s32 prio)
 {
+    re4_dvd_generation++;
+    s_reads[re4_dvd_generation % READ_RING].addr = (const u8*) addr;
+    s_reads[re4_dvd_generation % READ_RING].len = (u32) length;
+    s_reads[re4_dvd_generation % READ_RING].gen = re4_dvd_generation;
     (void) prio;
     char p[512];
     full_path((int) fi->startAddr, p, sizeof p);

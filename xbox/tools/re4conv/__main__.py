@@ -27,7 +27,7 @@ if __package__ in (None, ''):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     __package__ = 're4conv'
 
-from re4conv import ConvertError, container, model, motion, simple, tpl  # noqa: E402
+from re4conv import ConvertError, container, model, motion, simple, sound, tpl  # noqa: E402
 import archive  # noqa: E402  (tools/motion, via re4conv)
 
 STATUSES = ('converted', 'partial', 'passthrough', 'dropped', 'failed')
@@ -51,6 +51,10 @@ def classify(rel: str, d: bytes) -> str:
         return 'rel'
     if simple.handler(rel):
         return 'simple'
+    if sound.handler(rel):
+        return 'sound'
+    if ext == '.sbb':
+        return 'sbb'
     if ext in ('.drs', '.das') and archive.is_hakase(d):
         return 'hakase'
     if ext == '.evd' and d[:5] == b'event':
@@ -94,6 +98,15 @@ def convert_file(rel: str, d: bytes):
             rec['format'] = name
             out = conv(d)
             rec['status'] = 'converted'
+        elif kind == 'sound':
+            name, conv, _ = sound.handler(rel)
+            rec['format'] = name
+            out = conv(d)
+            rec['status'] = 'converted'
+            rec['note'] = 'tables little-endian, DSP-ADPCM samples unchanged (CT-14)'
+        elif kind == 'sbb':
+            rec['status'] = 'passthrough'
+            rec['note'] = 'raw DSP-ADPCM stream data, endian-neutral (kept as DSP-ADPCM, CT-14)'
         elif kind in ('hakase', 'event', 'body'):
             fn = {'hakase': container.convert_hakase, 'event': container.convert_event,
                   'body': container.convert_body}[kind]
@@ -129,6 +142,8 @@ def check_file(rel, out: bytes, orig: bytes, rec) -> list:
     try:
         if kind == 'simple':
             return simple.handler(rel)[2](out, orig)
+        if kind == 'sound':
+            return sound.handler(rel)[2](out, orig)
         if kind == 'hakase':
             return container.check_hakase(out, orig, rec)
         if kind == 'event':

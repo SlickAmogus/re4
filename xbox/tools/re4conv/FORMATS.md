@@ -15,7 +15,7 @@ Results on the real files are at the end.
 | body | inside the above; bare in St*/rNNN_NN.dat, ss/*/*.dat | converted | `u32 count, rel_offset, 0, 0; u32 ofs[count]; char tag[count][4]`; entries 0x20-aligned, no sizes (`read.cpp:989 GetDataExt`, `PL_ARC_PTR(arc,no) = arc->ofs[no] + arc`, index = entry + 4). Header words and `ofs[]` swapped; entries re-laid out (TPL entries change size) and re-padded to 0x20. |
 | yz2 body | St*/rNNN.das, etc/memcard.das | converted (decompressed) | Text header `<packed hex>\t<unpacked hex>\n` + range-coded stream (`tools/motion/yz2.py`, `yz2code.cpp`). The Xbox never sees yz2: the body record size becomes the unpacked size. |
 | REL in a body | em/*.drs (`rel_offset != 0`) | dropped | The module is linked statically. The body is cut at the REL, `rel_offset` is written as 0 and the manifest records the original REL size. |
-| sound bank (record type 4; inner records 1 and 2) | em/*.drs, etc/core.das, St*/rNNN.das | passthrough | DSP-ADPCM bank (`include/snd_drv.h`), owned by the ADPCM task (`re4conv/adpcm.py`). Re-laid out after the body unchanged. |
+| sound bank (record type 4; inner records 1 and 2) | em/*.drs, etc/core.das, St*/rNNN.das | converted (CT-14) | Nested DvdHeader table; MRAM block tables little-endian, DSP-ADPCM samples unchanged (`sound.py`, section 3a). Re-laid out after the body. |
 | event (`.evd`) | Evd/rNNNsMM.evd | partly converted | `EvtHeader` (`include/event.h:71`): `char tag[0x20]` path, `room[8]@0x20`, `no[0xC]@0x28`, `s32 sndFlag@0x34`, `u32 pacOfs@0x40`, `pacSize@0x44`, `s32 nBin@0x48`, `u32 binOfs@0x4C`; `EvtBinEntry` 0x40 = `name[0x30], u32 ofs@0x30, u32 size@0x34`. Header words and the bin table are swapped and the bins converted by extension (.bin/.tpl/.fcv/.seq/.mdt ...). **The packet stream (`EvtPacket` `event.h:160`: `int id, u32 flag, s16 cut, frame, size` + per-id payload) is passthrough** — second pass. |
 | ETM (nested) | room `ETM` entries | converted | `EtcArc` (`EtcModel.cpp:36`): `u32 num` at 0, files from 0x20, each `{u32 size (record stride) @0; char name[0x20] @0x20; data @0x40}`; files fetched by name (`GetEtcAddr`). Record sizes swapped, contents converted by extension. |
 
@@ -65,13 +65,47 @@ Results on the real files are at the end.
 | etc/*.esl | `include/global.h:67 EM_LIST` (255/256 x 0x20, raw) | converted (`simple.py`) | `u8 beFlag, id, type, set; u32 flag@4; u16 hp@8; u8 character@B; s16 pos[3]@C; s16 rot[3]@12; u16 room@18; s16 guardR@1A; u8 x1C[4]`. |
 | etc/SizeTbl.dat | `dvd.cpp:1159 SizeTableRead` → `pSizeTbl` | converted (`simple.py`) | `u32 count; {char name[8]; u32 size; u32 x}[count]`; read raw, never consumed by game code (`FileExistCheck` uses the DVD file table). |
 | bgm/bgmtbl.dat | `include/snd.h:89 SndBgmTbl` | converted (`simple.py`) | `u32 room_ofs@0, u32 list_ofs@4`; room offsets array, `u16` room-id list ending `0xFFFF`, `SndBgmRoom {u32 num; SndBgmEnt {u32 id; u32 bgm[6]; u32 str[6]}[]}`. Validated by walking list + offsets (`SndBgmTblInit`); u32 region before `list_ofs`, u16 list after. |
-| bgm/*.sbb, *.hed, doorse.*, bio4midi.* | `include/snd_drv.h` | passthrough | ADPCM task. |
+| bgm/bio4str.hed, bio4midi.hed/.dat, doorse.hed/.dat | `include/snd_drv.h`, `snd.h` | converted (CT-14, `sound.py`) | see section 3a; sizes unchanged so every DVD offset stays valid. |
+| bgm/bio4bgm.sbb, bio4evt.sbb | — | passthrough (by design) | raw DSP-ADPCM stream data, no header; endian-neutral. |
 | font/*.fnt | `mes.cpp:338 setupFont` | passthrough (second pass) | `u32 tplOfs@0, u32 widthTblOfs@4` (relative to the file) + TPL + width table. |
 | etc/<lang>/*.eff | `id_tex.cpp:39 IdTexData` | passthrough | same header as EFF (version 0xB, ofsId@4, ofsTpl@18, ofsAnm@1C); TPLs via `cTexSys::CalcTplAddr`. |
 | ss/<lang>/*.dat, ss/cmn/*.dat | `include/sscrn.h:19 SS_ARC_PTR` | passthrough | body-like `u32 ofs[]` table (no count/tags per the macro); entries: .fnt, ID texture .eff, ID layouts (`ID_FILE_HEADER`), message data. |
 | Movie/*.sfd | CRI | passthrough | CRI parses its own stream. |
 | Rel/*.rel | — | dropped | static link. |
 | opening.bnr, dummy.dat, znull.dat | — | passthrough | |
+
+## 3a. Sound (CT-14, `sound.py`)
+
+Decision (for now): sample data stays **GameCube DSP-ADPCM** — 8-byte frames (1 header byte + 14
+nibbles) are byte-oriented and endian-neutral; the port's first audio backend is a software mixer that
+decodes DSP-ADPCM (`xbox/port/snd/dspadpcm.c`). Only headers and tables are swapped; layout and sizes
+are unchanged, so `.hed` DVD offsets, `DvdHeader.ofs` and ARAM sizes stay valid. Converting samples to
+Xbox ADPCM later (`adpcm.py`, CT-06) is a separate pass that will need the address map of 03-AUDIO.
+
+Every converter builds a span layout from the big-endian input (struct format per element); `check`
+rebuilds it from the output, requires the same layout and compares every field value. Non-zero bytes
+outside every known span are refused (none on the retail discs).
+
+| Structure | Where | Fields swapped (everything else is copied) |
+|-----------|-------|---------------------------------------------|
+| bank = DvdHeader table (`dvd.h:28`, `dvd.cpp:656`) | nested type-4 record, each bank of doorse.dat / bio4midi.dat | `char sig[0x20]` kept; records `u32 type, size, dest, ofs, sndType, sndArg, sndNo, x1C` (all 8 words) incl. the `0xFFFFFFFF` terminator. type 1 = MRAM block (below), type 2 = ARAM samples (copied). |
+| MRAM block header (`SndBlkInit` snd.cpp:2486) | sndType != 3/4 | `u32 iss_ofs@0, u32 rnd_ofs@4` (zero to iss_ofs). sndType 3/4 (BGM) blocks are an ISS block directly. |
+| random SE table (`seRandomCheck` snd.cpp:640) | at rnd_ofs | `u32 tbl[32]` (0x80 bytes; relative offsets, tbl[0] unused); each `SBL_DATA` `u16 num, last, e[num]`. |
+| ISS block (`Snd_iss_blk_init` snd_sub3.cpp:6) | | `u32 sit_num, wt_ofs, sit_ofs, seq_ofs`; `SND_SIT` x sit_num: `u16 note@0, pitch_l@A, pitch_h@C, flag@16` (s8/u8 fields @2..9, @E..15 copied). sit_num 0 with sit_ofs == block size occurs (wep19/41/42). |
+| sequence table (`snd_seq3.cpp:152`) | seq_ofs != 0 (BGM blocks) | `u32 count, u32 ofs[count]`; MIDI data after it copied (read byte-wise, `snd_seq2.cpp:191`). |
+| WTFILEHEADER (`snd_drv.h:104`) | ISS + wt_ofs | 6 `u32` offsets. Tables run to the next offset. |
+| WTINST (`syn.h:13`) | [percInst, regions) | `u16 keyRegion[]` (truncated to the keys used, or 128 per instrument). |
+| WTREGION 0x18 | [regions, art) | `s16 fineTune@2, s32 attn@4, u32 loopStart@8, loopLength@C, articulationIndex@10, sampleIndex@14` (u8 unityNote, keyGroup copied). |
+| WTART 0x50 | [art, samples) | all 20 `s32`. |
+| WTSAMPLE 0x10 | [samples, adpcm) | `u16 format@0, sampleRate@2, u32 offset@4, length@8, u16 adpcmIndex@C` (2 pad bytes copied). |
+| WTADPCM 0x2E | adpcm, count = max adpcmIndex + 1 | all 23 `u16`: `a[8][2]` coefficients, gain, pred_scale, yn1, yn2, loop_pred_scale, loop_yn1, loop_yn2. |
+| bio4str.hed (`snd.cpp:120`, `Snd_str_blk_init` snd_sub3.cpp:20) | | `u32 ofs[2]` (blocks); block `u32 rit_num, sbh_ofs, rit_ofs`; `u32 sbh[]` (length = first non-zero offset / 4); `SND_SHD` 0x80: `u32 flag, samples, nibbles, rate, start_nbl, lptop_nbl, lpend_nbl, offset` + 46 `u16` (`coef[16], coefR[16], gain[2], ps[2], yn1[2], yn2[2], lps[2], lyn1[2], lyn2[2]`), 4 pad bytes copied; `SND_RIT` 0x10: `s16 str_no@0, u16 flag@C` (s8 fields copied). 2 blocks: 67 RIT / 64 SHD, 240 RIT / 234 SHD. |
+| bio4midi.hed (`SndMem.bgm_file`) | | `u32[24]` offsets into bio4midi.dat (17 banks, sndType 3). |
+| doorse.hed (`SndDoorTbl` snd.h:74) | | `u32 file_ofs, num_ofs`; `u32 ofs[n]` at file_ofs; `u16 n` + `u16 ids[n]` at num_ofs (12 banks in doorse.dat, sndType 7). |
+
+Real data: all 202 (disc 1) / 174 (disc 2) nested banks, the 5 bgm table files convert and check clean.
+Port note (not a converter issue): `snd_iss2.cpp:149` and `snd_str2.cpp:164` read
+`AXPBADDR.currentAddressHi:Lo` as one `u32` — a big-endian word-pair trick the AX shim's layout must keep.
 
 ## 4. Results on the real files
 

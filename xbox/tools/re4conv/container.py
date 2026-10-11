@@ -4,8 +4,8 @@ Struct truth (see FORMATS.md section 1 for the full notes):
   hakase   0x20 signature (bytes, kept) + 32-byte records {u32 type, size, 0, offset, p0, p1, 0, 0}
            terminated by type 0xFFFFFFFF, zero to 0x400 (tools/drs.py). Record 0 = body at 0x400,
            record 1 = type 4 sound bank or 0xFFFFFFFE (size 0, offset = file size). Output: every
-           record word little-endian, body re-laid out, sound bank appended unchanged (passthrough,
-           DSP-ADPCM is the ADPCM task's) at the new offset.
+           record word little-endian, body re-laid out, sound bank appended at the new offset with its
+           tables little-endian and its DSP-ADPCM samples unchanged (sound.convert_bank, CT-14).
   .das     the same with a yz2 body: decompressed (tools/motion/archive.load_das); the Xbox never sees yz2.
   body     u32 count, rel_offset, 0, 0; u32 ofs[count]; char tag[count][4]; entries 0x20-aligned, an
            entry runs to the next offset (PL_ARC_PTR(arc, no) = arc->ofs[no] + arc, read.cpp GetDataExt).
@@ -32,7 +32,7 @@ import archive    # tools/motion
 import yz2        # tools/motion
 
 from . import ConvertError, NotThisFormat
-from . import model, tpl, motion
+from . import model, tpl, motion, sound
 
 ALIGN = 0x20
 TABLE_SIZE = 0x400
@@ -175,8 +175,13 @@ def _hakase_out(a, body, info):
     else:
         snd = a.snd.pack()
         snd_rec = (4, len(snd), 0, TABLE_SIZE + len(body), 0, 0, 0, 0)
-        info['sound'] = {'status': 'passthrough', 'size': len(snd),
+        info['sound'] = {'size': len(snd),
                          'records': [{'type': t, 'p0': p0, 'p1': p1, 'size': len(b)} for t, p0, p1, b in a.snd.records]}
+        try:    # CT-14: DvdHeader table + MRAM block tables little-endian, DSP-ADPCM samples unchanged
+            snd = sound.convert_bank(snd)
+            info['sound']['status'] = 'converted'
+        except ConvertError as e:
+            info['sound'].update(status='failed', error=str(e))
     return _records_le(a.sig, [(0, len(body), 0, TABLE_SIZE, 0, 0, 0, 0), snd_rec]) + body + snd
 
 
@@ -208,7 +213,10 @@ def convert_hakase(d: bytes):
     body = pack_body(conv, rel=a.rel)
     info['status'] = _status(recs)
     info['entries'] = recs
-    return _hakase_out(a, body, info), info
+    out = _hakase_out(a, body, info)
+    if info.get('sound', {}).get('status') == 'failed':
+        info['status'] = 'partial'
+    return out, info
 
 
 def parse_hakase_le(d: bytes):
@@ -320,11 +328,19 @@ def _check_list(ents_out, ents_in, recs):
 
 def check_hakase(out: bytes, original: bytes, info: dict):
     try:
-        _, _, ents, _ = parse_hakase_le(out)
+        _, _, ents, snd = parse_hakase_le(out)
     except (ConvertError, ValueError, struct.error) as e:
         return [f'container: {e}']
-    ents_in = [(drs.tag_name(t), b) for t, b in open_hakase(original)[0].entries]
-    return _check_list(ents, ents_in, info['entries'])
+    a_in = open_hakase(original)[0]
+    ents_in = [(drs.tag_name(t), b) for t, b in a_in.entries]
+    probs = _check_list(ents, ents_in, info['entries'])
+    snd_in = a_in.snd.pack() if a_in.snd is not None else b''
+    st = info.get('sound', {}).get('status')
+    if st == 'converted':
+        probs += [f'sound bank: {p}' for p in sound.check_bank(snd, snd_in)]
+    elif snd != snd_in:
+        probs.append('sound bank bytes differ')
+    return probs
 
 
 def check_body(out, original, info):

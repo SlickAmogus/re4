@@ -104,6 +104,14 @@ MODULE_OBJS_$(1) += $(call U_OUT,$(2)).obj
 endef
 define MODULE_LIB
 $(foreach u,$(MODULE_$(1)),$(eval $(call MODULE_UNIT,$(1),$(u))))
+# per-module section control (tools/gen_modseg.py, CT-12): every unit force-includes <m>.seg.h, and
+# <m>.seg.cpp adds the range markers of the module's .data/.bss/initialiser sections
+$(MODBUILD)/$(1).seg.h $(MODBUILD)/$(1).seg.cpp: $(CURDIR)/tools/gen_modseg.py
+	$(PY) $(CURDIR)/tools/gen_modseg.py $(1) $(MODBUILD)
+$$(MODULE_OBJS_$(1)): $(MODBUILD)/$(1).seg.h
+$$(MODULE_OBJS_$(1)): CXXFLAGS += -include $(MODBUILD)/$(1).seg.h
+$$(MODULE_OBJS_$(1)): CFLAGS += -include $(MODBUILD)/$(1).seg.h
+MODULE_OBJS_$(1) += $(MODBUILD)/$(1).seg.obj
 $$(MODULE_OBJS_$(1)): $(PREP_HEADERS)
 $(MODBUILD)/$(1).lib: $$(MODULE_OBJS_$(1)) $(CURDIR)/tools/isolate_modules.py
 	@echo "[ ISOLATE  ] $(1)"
@@ -117,6 +125,7 @@ $(MODULE_ALL_OBJS): CXXFLAGS += $(RE4_CXXFLAGS)
 main.exe: $(MODULE_LIBS)
 PORT_SRCS += $(PORT)/os/module_table.cpp $(PORT)/os/alias_thunks.cpp $(CURDIR)/build/link_stubs.c
 PORT_SRCS += $(PORT)/os/os_thread.cpp $(PORT)/os/os_misc.cpp $(PORT)/os/vi_pad.cpp $(PORT)/dvd/dvd_shim.cpp
+PORT_SRCS += $(PORT)/card/card_shim.cpp
 else
 PORT_SRCS += $(PORT)/stub_game.cpp
 GAME_SRCS =

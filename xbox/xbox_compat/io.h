@@ -4,6 +4,9 @@
 #include <stdio.h>
 
 /* MSVC-style low-level I/O for nxdk (underscore prefix = the real names) */
+#ifdef __cplusplus
+extern "C" {
+#endif
 int    _open(const char *path, int flags, ...);
 int    _read(int fd, void *buf, unsigned int count);
 int    _write(int fd, const void *buf, unsigned int count);
@@ -15,6 +18,9 @@ long   _filelength(int fd);
 int    _fstat(int fd, struct stat *st);
 FILE  *_fdopen(int fd, const char *mode);
 
+#ifdef __cplusplus
+}
+#endif
 /* compat.h under _MSC_VER maps open→_open, etc., so no need to re-alias here */
 
 #ifndef F_OK
