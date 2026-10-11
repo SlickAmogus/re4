@@ -1,0 +1,23 @@
+!!VP1.1
+# gx_nv2a passthrough vertex program (CT-15). Derived from Starship xbox/vs_passthrough.vp.
+# The CPU has already applied the GX position/projection matrices, texgen and lighting; this program
+# only maps clip space to NV2A screen space and forwards the interpolants.
+# Inputs : v[0]=POSITION (clip x,y,z,w)  v[3]=DIFFUSE (COLOR0)  v[4]=SPECULAR (COLOR1)
+#          v[8..11]=TEXCOORD0..3 (s,t,r,q) -> hardware attribute slots 9..12
+# Consts : c[0]..c[3] = viewport matrix rows (loaded at NV097_SET_TRANSFORM_CONSTANT_LOAD 96)
+# Outputs: o[HPOS] = (screen xyz / w, w), o[COL0], o[COL1], o[TEX0..3]
+    MOV o[TEX0], v[8];
+    MOV o[TEX1], v[9];
+    MOV o[TEX2], v[10];
+    MOV o[TEX3], v[11];
+    MOV o[COL0], v[3];
+    MOV o[COL1], v[4];
+    MUL R0, v[0].y, c[1];
+    MAD R0, v[0].x, c[0], R0;
+    MAD R0, v[0].z, c[2], R0;
+    MAD R0, v[0].w, c[3], R0;
+    RCP R1.x, R0.w;
+    MUL R0.xyz, R0.xyzx, R1.x;
+    MOV o[HPOS].xyz, R0;
+    MOV o[HPOS].w, R0.w;
+END

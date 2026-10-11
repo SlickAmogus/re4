@@ -161,3 +161,28 @@ void PPCMtpmc4(unsigned) { }
 void LCEnable(void) { }
 
 } // extern "C"
+
+// ---- misc SDK leftovers the link listed (sdk-symbols.md "game-side") -------------------------------
+extern "C" {
+void EXIProbeReset(void) { }
+
+// TPL lookup (SDK texPalette.c): the descriptor array is relocated in place by calcTplAddr.
+struct TEXDescriptorP { void* textureHeader; void* CLUTHeader; };
+struct TEXPaletteP { unsigned version; unsigned numDescriptors; TEXDescriptorP* descriptorArray; };
+TEXDescriptorP* TEXGet(TEXPaletteP* pal, unsigned id) { return &pal->descriptorArray[id]; }
+}
+
+// game/exception.cpp is not compiled (PowerPC exception handler); main.cpp still calls its init.
+void ExceptionInit(void) { }
+
+// SN ProDG host file server (debug build: HDRead/HDWrite talk to the PC over the debugger link).
+// No host here: every call fails, which file.cpp already handles (the debug save/load paths give up).
+extern "C" {
+int PCinit(void) { return -1; }
+int PCcreat(const char*, int) { return -1; }
+int PCopen(const char*, int, int) { return -1; }
+int PCclose(int) { return -1; }
+int PCread(int, void*, int) { return -1; }
+int PCwrite(int, const void*, int) { return -1; }
+int PClseek(int, int, int) { return -1; }
+}

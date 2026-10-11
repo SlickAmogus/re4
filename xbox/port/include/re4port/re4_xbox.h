@@ -76,6 +76,14 @@ extern void re4_fatal(const char* file, int line, const char* msg);
 #define PSMTXTransApply C_MTXTransApply
 #define PSMTXTranspose C_MTXTranspose
 #define PSMTX44Copy C_MTX44Copy
+#define PSMTX44Identity C_MTX44Identity
+#define PSMTX44Trans C_MTX44Trans
+#define PSMTX44Scale C_MTX44Scale
+#define PSMTX44RotRad C_MTX44RotRad
+#define PSMTX44RotTrig C_MTX44RotTrig
+#define PSMTX44RotAxisRad C_MTX44RotAxisRad
+#define PSMTXConcatArray C_MTXConcatArray
+#define PSMTXReflect C_MTXReflect
 #define PSMTX44Concat C_MTX44Concat
 #define PSMTX44Transpose C_MTX44Transpose
 #define PSMTX44TransApply C_MTX44TransApply

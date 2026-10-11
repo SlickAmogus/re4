@@ -74,6 +74,24 @@ SITE_PATCHES = {
     'src/game/main_mem.cpp': [("name = strrchr(file, '/');", "name = (char*) strrchr(file, '/');")],
     'src/st3/r332.cpp': [('p = strstr(', 'p = (char*) strstr(')],
     'src/game/main_sub.cpp': [('if (addr < GC_U32(0x80000000) || addr > 0x82FFFFFF) {', 'if (!RE4_VALID_PTR(addr)) {')],
+    # PowerPC .rodata labels defined in top-level asm -> C++ definitions (the asm-labelled `_v` aliases
+    # resolve to them through link_resolve.py's "asm label data" rule)
+    'src/st2/r222.cpp': [('asm(".section \\".rodata\\"\\n\\t.align 2\\nr222_k212:\\n\\t.long 0x4007b8a5\\n\\t.section \\".text\\"");',
+                          'extern const f32 r222_k212; const f32 r222_k212 = 2.12f;   /* prep.py: was a .rodata asm label (0x4007b8a5) */')],
+    'src/st2/r224.cpp': [('asm(".section \\".rodata\\"\\n\\t.align 2\\nr224_zero:\\n\\t.long 0\\n\\t.section \\".text\\"");',
+                          'extern const f32 r224_zero; const f32 r224_zero = 0.0f;   /* prep.py: was a .rodata asm label */')],
+    # The SN linker resolved references to `static` definitions and to non-emitted `inline` members from
+    # other units (and from REL modules). A standard linker does not: give them external linkage.
+    'src/lib/OSTime.c': [('void __OSSetTime(OSTime time) {',
+                          'static void __SetTime(OSTime t) { (void) t; }   /* prep.py: was mtspr TBL/TBU */\nvoid __OSSetTime(OSTime time) {')],
+    'src/game/foot_shadow_tbl.cpp': [('static FootShadowTbl Em32_fs_tbl', 'FootShadowTbl Em32_fs_tbl')],
+    'src/game/em_sub.cpp': [('static void EmCatchSubSet(', 'void EmCatchSubSet(')],
+    'src/game/quake.cpp': [('static void QuakeKill(u8 id)', 'void QuakeKill(u8 id)')],
+    'src/game/model.cpp': [('inline int cModel::isTrans()', 'int cModel::isTrans()')],
+    'src/game/pl_class.cpp': [('inline void cPlayer::subCharLiveCheck()', 'void cPlayer::subCharLiveCheck()')],
+    'src/game/EtcModel.cpp': [('static int setRoomEtcBreakDisp(', 'int setRoomEtcBreakDisp(')],
+    'src/em21/em21.cpp': [('static CAMERA em21_trap_cam = { 0 };', 'CAMERA em21_trap_cam = { 0 };')],
+    'src/em2a/em2a.cpp': [('static CAMERA em2a_rescue_cam = { 0 };', 'CAMERA em2a_rescue_cam = { 0 };')],
     'src/game/esp0a.cpp': [('AddOtWorldPos(e, Esp0a_Trans2,', 'AddOtWorldPos(e, (void (*)(void*)) Esp0a_Trans2,')],
     # skinning palette lived in locked cache at 0xE0000000 (CT-02); the port keeps it in re4_skin_palette
     'src/game/trans.cpp': [('PSMTXReorder(m, (f32(*)[3]) (0xE0000000 + i * 0x30));', 'PSMTXReorder(m, RE4_SKIN_PALETTE(i));')],
@@ -252,6 +270,11 @@ def prep(text, path):
     upath = path.replace('\\', '/')
     text = re.sub(r'\s*asm\("f?r\d+"\)', '', text)            # 1. register pins
     text = sub_empty_asm(text)                               # 2. codeless levers
+    for suffix, patches in SITE_PATCHES.items():              # asm-shaped site patches first, before
+        if upath.endswith(suffix):                            # the section-directive strip removes them
+            for old, new in patches:
+                if old.startswith('asm('):
+                    text = text.replace(old, new)
     text = SECTION_ASM.sub('', text)
     text = ALIAS_LABEL.sub(');', text)
     for pat, rep in PSQ_MACROS:
@@ -277,6 +300,8 @@ def prep(text, path):
     for suffix, patches in SITE_PATCHES.items():              # 5. one-liners
         if upath.endswith(suffix):
             for old, new in patches:
+                if old.startswith('asm('):
+                    continue                                  # applied before the section strip
                 if old not in text:
                     sys.stderr.write(f'prep.py: {path}: site patch not found: {old}\n')
                 text = text.replace(old, new)
