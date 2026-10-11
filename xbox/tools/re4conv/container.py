@@ -32,7 +32,7 @@ import archive    # tools/motion
 import yz2        # tools/motion
 
 from . import ConvertError, NotThisFormat
-from . import model, tpl, motion, sound
+from . import model, tpl, motion, sound, room, room_nested
 
 ALIGN = 0x20
 TABLE_SIZE = 0x400
@@ -56,6 +56,17 @@ ENTRY = {
 }
 
 
+def _room_entry(tag):
+    return (lambda d: room.convert(tag, d)), (lambda d, original=None: room.check(tag, d, original))
+
+
+# CT-14: fixed-layout room tables (room.py), converted in place (sizes unchanged)
+for _tag in room.BUILDERS:
+    ENTRY.setdefault(_tag, _room_entry(_tag))
+for _tag in room_nested.PARSERS:
+    ENTRY.setdefault(_tag, (None, (lambda t: lambda d, original=None: room_nested.check(t, d, original))(_tag)))
+
+
 def convert_entry(tag: str, d: bytes):
     """-> (bytes, rec). rec['status']: converted / empty / passthrough / failed."""
     rec = {'tag': tag or '-', 'in': len(d)}
@@ -65,6 +76,10 @@ def convert_entry(tag: str, d: bytes):
     try:
         if tag == 'ETM':
             out, sub = convert_etm(d)
+            rec['files'] = sub['entries']
+            rec['status'] = sub['status']
+        elif tag in room_nested.PARSERS:      # CT-14: SMD / SHD / TEX / ITM (nested BIN / TPL, re-laid out)
+            out, sub = room_nested.convert(tag, d)
             rec['files'] = sub['entries']
             rec['status'] = sub['status']
         elif tag in ENTRY:

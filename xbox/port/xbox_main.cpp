@@ -23,13 +23,15 @@ extern "C" const char* xbox_get_writedir(void);
 
 #define MAXRAM 0x03FFAFFF
 
-// Converted assets live next to the XBE: D:\datailes\... (D: is the XBE's own directory under nxdk)
+// Converted assets live next to the XBE: D:\data\files\... (D: is the XBE's own directory under nxdk)
 extern "C" const char* re4_data_dir;
 const char* re4_data_dir = "D:\\data";
 
 extern "C" void* re4_xbox_alloc_contiguous(unsigned size)
 {
-    return MmAllocateContiguousMemoryEx(size, 0, MAXRAM, 0, PAGE_READWRITE | PAGE_WRITECOMBINE);
+    // Cached: the game's heaps live here and the CPU reads them constantly (write-combined memory is
+    // uncached for reads). The GX backend copies textures/vertices into its own GPU memory.
+    return MmAllocateContiguousMemoryEx(size, 0, MAXRAM, 0, PAGE_READWRITE);
 }
 
 int main(void)
@@ -47,8 +49,9 @@ int main(void)
         return 1;
     }
 
-    // Phase 0: no renderer yet; the null backend records calls to the log.
-    gx_select_backend(&gx_null_backend);
+    // NV2A backend (CT-15); init must run before selection (selection sends the initial viewport).
+    if (gx_nv2a_backend.init(640, 448) == 0) gx_select_backend(&gx_nv2a_backend);
+    else gx_select_backend(&gx_null_backend);
 
     re4_modules_init();   // snapshot every REL module's initial .data before the game runs (CT-12)
     int rc = re4_main();

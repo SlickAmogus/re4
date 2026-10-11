@@ -87,7 +87,9 @@ Code: `xbox/port/snd/dspadpcm.{h,c}`, `xbox/port/snd/xboxadpcm.{h,c}`, `xbox/too
   frame-aligned buffer is at `s/14*16 + s%14 + 2` (`snd_iss3.cpp:270-284`). AX `endAddress` is
   **inclusive**: the stream ring wrap sets `end = ring + 0x3FFFF` = last nibble (`snd_str2.cpp:277-287`);
   on a wrap the DSP reloads pred_scale/yn1/yn2 from AXPBADPCMLOOP (the stream ring uses
-  `{first header byte, 0, 0}`).
+  `{first header byte, 0, 0}`). (CT-10: that holds for type-0 voices; the stream wrap sets AXSetVoiceType(1) first,
+  `snd_str2.cpp:292/302`, and a type-1 "stream" voice keeps yn1/yn2 across the wrap, as in Dolphin's
+  AX HLE; the soft mixer re-reads the loop frame's header from ARAM.)
 - **Unresolved: the iss3 end-address quirk.** `iss_ax_set_para` computes
   `end = cur + n/14*16 + n%14` with `n = length` (one-shot) or `n = loopStart + loopLength` (loop),
   i.e. the address of the sample *one past* the last one, while the SDK's DSPADPCM tool writes
@@ -116,11 +118,72 @@ Code: `xbox/port/snd/dspadpcm.{h,c}`, `xbox/port/snd/xboxadpcm.{h,c}`, `xbox/too
 guarded by a critical section against the game thread's request queue, or from the game loop at 60 Hz with
 3–4 catch-up iterations. Thread is cleaner and avoids tying envelope rate to frame rate.
 
-## 6. Host backend
+## 6. Software backend (CT-10, implemented)
 
-SDL2 audio callback (48 kHz stereo float) with a software mixer: decode DSP-ADPCM, resample linearly,
-apply volume/pan/LPF, sum. Reverb: a simple Schroeder reverb per AUX bus so the host sounds roughly right.
-This is enough to validate the driver logic end-to-end without hardware.
+`xbox/port/snd/ax_shim.cpp` implements the SDK surface once over a backend-neutral voice model
+(`xbox/port/include/re4port/ax_shim.h`: `Re4AxVoiceState` per AXVPB + a `Re4AxBackend` vtable);
+`xbox/port/snd/snd_soft.cpp` is the first backend, a CPU mixer that works on every platform:
+
+- per voice: DSP-ADPCM from ARAM (`re4_aram_base`, nibble addresses, `dspadpcm.c`), PCM16 (big-endian
+  ARAM words) or PCM8; inclusive end, loop with AXPBADPCMLOOP reload for type 0, history kept and
+  the loop frame header re-read for type 1 (stream ring, `snd_str2.cpp:292`); one-shots that reach the
+  end get `pb.state = 0`; linear SRC with the 16.16 ratio (type NONE = 1:1, max 8x); one-pole LPF;
+  `ve` and the nine AXPBMIX gains ramped over the 5 ms frame;
+- AUX A/B buses (160 s32 per channel, 4 channels for AUX A in DPL2) through the registered AUX
+  callbacks, then added to the main bus; no callback = bus discarded (as on the DSP);
+- main L/R/S (Ls/Rs in DPL2) to stereo (in-phase downmix; Dolby Surround matrix in AX surround mode),
+  master gain, the `AXSetCompressor` limiter, s16 at 32 kHz or (optional) 48 kHz;
+- sinks: **Xbox** (`RE4_AUDIO_RXDK`, XDK DirectSound objects linked) one looping 2D PCM buffer on the
+  FL/FR mixbins, written 50 ms ahead of the play cursor, silence guard past the data, underrun resync,
+  `DirectSoundDoWork()` every pump; init copied from jfduke3d-xbox `driver_dsound_xbox.c` (APU register
+  reset, `g_DirectSoundCriticalSection`, speaker-config globals, `DirectSoundCreate`, no XAudioInit);
+  **host** `RE4_GL`: SDL queued audio; otherwise a **null** sink paced by the wall clock; **capture** for
+  tests.
+
+**Timing.** `re4_audio_pump()` (call it once per game frame from `VIWaitForRetrace`) runs as many AX
+frames as the sink can take (SDL/DS: fill to 10 frames = 50 ms queued; null: elapsed wall time / 5 ms),
+at most `RE4AX_MAX_CATCHUP` = 12 per call (a longer stall drops the backlog instead of spiralling).
+Each frame: render with the current parameters -> AUX callbacks -> `pb.state`/`pb.addr` mirrors
+refreshed -> the `AXRegisterCallback` callback (`cb_audio_frame`). Everything runs on the game's
+kernel thread (the OS shim's threads are cooperative fibers), so no locks; the game's
+`OSDisableInterrupts` pairs stay no-ops. Decision vs section 5: pumping from the frame loop instead of a
+5 ms thread, because the pump is sink-paced (the envelope rate follows the audio clock, not the frame
+rate) and needs no synchronisation with the game thread. At 60 Hz each pump runs 3-4 frames.
+
+**AXVPB fields the game reads** (audit of `src/game/snd_*.cpp`): `pb.state` (iss2:145, iss4:72/211/263,
+str1:108, str3:278/285), `pb.addr.loopFlag` (iss2:148) and `*(u32*)&pb.addr.currentAddressHi` /
+`endAddressHi` (iss2:149-150, str2:164). The layout of `include/dolphin/ax.h` is kept; because a u32
+load of a Hi/Lo pair is `(Lo << 16) | Hi` on little-endian, the shim mirrors every address pair as a
+host-order u32 stored at the Hi field. Values the game passes in (`AXPBADDR` etc.) are read normally.
+
+### Implemented surface
+
+| Function(s) | Status |
+|---|---|
+| `AXInit`, `AXInitEx`, `AXQuit` | real (backend open/close) |
+| `AXAcquireVoice`, `AXFreeVoice`, `AXSetVoicePriority` | real: 64 voices, steals the lowest priority below the request (oldest on a tie) and calls its drop callback |
+| `AXSetVoiceType/Addr/Loop/LoopAddr/EndAddr/CurrentAddr/Adpcm/AdpcmLoop/Src/SrcType/SrcRatio/Lpf/LpfCoefs/State/Mix/Ve/VeDelta` | real (VeDelta approximated as reaching its target at the end of the frame); SRC types 2-4 (4-tap) are mixed linearly |
+| `AXGetLpfCoefs` | real (one-pole formula, not the SDK table) |
+| `AXSetVoiceItdOn/ItdTarget/UpdateIncrement/UpdateWrite/Dpop/Fir` | no-op (unused by the game) |
+| `AXRegisterCallback`, `AXRegisterAuxACallback/BCallback` | real |
+| `AXSetMode/GetMode` | real (stereo / surround / DPL2 render paths) |
+| `AXSetCompressor` | real (peak limiter in the soft mixer) |
+| `AXGetDspCycles`, `AXGetMaxDspCycles`, `AXSetMaxDspCycles`, `AXSetStepMode`, `AXInitProfile`, `AXGetProfile` | stored-only / plausible values (statistics display only) |
+| `MIX*` (all of `mix.h`) | real: semantics and tables of the SDK `src/lib/mix.c`; Init applies at once, Set/Adjust at the next `MIXUpdateSettings` with a one-frame ramp |
+| `MIXSetDvdStreamFader/Get` | stored-only (no DVD audio streaming in the game) |
+| `AXFXReverbHi/ReverbStd/ReverbHiDpl2 Init/Settings/Shutdown/Callback` | real but approximate: parameters stay in the game struct, a Freeverb-style Schroeder reverb (4 combs + 2 all-pass per side; RT60 = `time`, `damping`, `preDelay`, wet = `mix`); `tempDisableFX` passes the bus through like the SDK |
+| `AXFXChorus*` | real but approximate: modulated delay from `baseDelay`/`variation`/`period` |
+| `AXFXDelay*` | real: per-channel feedback delay (`delay` ms, `feedback` %, `output` %) |
+| `AXFXSetHooks` | real (effect memory from the game heap) |
+| `AXARTInit/Quit/ServiceSounds`, `AXARTAddSound/RemoveSound` | sound list only; articulators not evaluated (the game never adds a sound) |
+| `SYNInit/Quit/RunAudioFrame/InitSynth/QuitSynth/MidiInput/SetMasterVolume/GetMasterVolume/GetActiveNotes/GetMidiController` | stub: **MIDI sequences are silent**. Controller/master-volume state kept; `SYNGetActiveNotes` = 0, which `snd_seq3.cpp:60` takes as "sequence finished" |
+| `SEQInit/Quit/RunAudioFrame` (+ `SEQAdd/RemoveSequence`, state/tempo/volume) | stored-only (the game runs its own MIDI sequencer, `snd_seq*.cpp`) |
+| `AIInit`, `AIReset` (+ rate/volume/callback state calls) | stored-only (the backend replaces AI DMA) |
+
+Tests: `xbox/port/tests/ax/` (`make -C xbox/port/tests/ax test`, 32-bit): one-shot duration/level/pitch
+and the u32 address reads, loop + ratio 1.5 without dropouts, MIX ramp/pan, AUX callback per frame,
+AXFX reverb tail and delay, 48 kHz, voice stealing, pump pacing and catch-up cap; WAVs in
+`xbox/port/tests/out/ct10_*.wav`.
 
 ## 7. Open points
 
@@ -129,3 +192,37 @@ This is enough to validate the driver logic end-to-end without hardware.
 - Dolby Pro Logic II mode: the Xbox AC3 encoder makes a real 5.1; `SndSurWork` already computes rear
   contributions, so route them to BL/BR.
 - `AXSetCompressor`: the APU has no global compressor; `SetVolume` headroom instead.
+- **MIDI (SYN).** The upgrade path for audible `bio4midi` sequences is the SDK's own synth in
+  `src/lib/syn*.c` (with `seq.c`, `axart*.c`, `axfx` sources next to it). `mix.c`, `seq.c` and
+  `axart*.c` compile with nxdk-cc unchanged, `syn*.c` needs the `fake_tgmath.h` guard pre-defined. They
+  program voices by writing the AXPB directly and setting `AXVPB::sync` bits, and `synsample.c` /
+  `synpitch.c` store Hi/Lo pairs as u32 (`*(u32*)&pb.addr = 0x10000` means loopFlag = 1 on big-endian),
+  so the shim would first need a sync-aware path that reads those pb fields with the u32 convention.
+- **Output gain on Xbox.** jfduke3d found the APU path (with AC3 encoding) quiet and boosts 4x; the
+  DirectSound sink defaults to 2x (`re4snd_soft_set_gain`), to be tuned on hardware.
+
+## 8. Later: per-voice hardware DirectSound backend (not implemented)
+
+The `Re4AxBackend` hooks (`voice_start/stop/update` with dirty bits, `set_aux`, `frames_wanted`,
+`run_frame`, `pump_end`) are shaped so a second backend can put AX voices on APU voices instead of the
+CPU mixer:
+
+- **Samples.** Converted offline to Xbox ADPCM (section 4); the converter emits a table from each
+  sample's ARAM nibble start to its converted block data. `voice_start` looks the AX `cur` address up,
+  binds a pooled `IDirectSoundBuffer` (64 preallocated, 2D) to that memory with `SetBufferData`
+  (no copy), `SetPlayRegion` / `SetLoopRegion` in 36-byte blocks from the loop/end addresses, then
+  `Play(DSBPLAY_LOOPING)` or one-shot.
+- **Pitch.** `SetFrequency(ratio * 32000 / 65536)` (the AX ratio already contains sampleRate / 32000).
+- **Gains.** `ve` -> `SetVolume` (hundredths of dB, `2000 * log10(g / 32768)`), the AXPBMIX bins ->
+  `SetMixBinVolumes` on FL/FR (+BL/BR for S or DPL2 Ls/Rs, C/LFE optional), AUX A/B sends -> two
+  `DSMIXBIN_FXSEND_*` bins feeding the GP: the game's effect callbacks are recognised by address
+  (`AXFXReverbHiCallback` etc.) and mapped to `SetI3DL2Listener` presets from their `time`/`damping`/
+  `preDelay`/`mix`; an unknown AUX callback (or `cb_efx_clear_bass`) means "send muted".
+- **LPF.** `SetFilter` (the voice's DSFILTERDESC low-pass) from the one-pole a0/b0, or ignored.
+- **End / position.** `frames_wanted` keeps the 5 ms cadence from a timer (no PCM sink); each frame
+  `GetStatus` marks finished one-shots `ended`, and `GetCurrentPosition` is converted back to an AX
+  nibble address for the `pb.addr` mirror. Streams (`snd_str*.cpp`) poll that address to refill their
+  ARAM ring, so they stay on the software mixer (one soft DS buffer = the mix of the stream voices)
+  until a stream path with `IDirectSoundStream` packets exists: a hybrid backend routes SE voices to
+  hardware and stream voices to `snd_soft`.
+- Trade-offs: no CPU mixing for SEs vs. approximate per-voice LPF and AXFX sound (section 7).

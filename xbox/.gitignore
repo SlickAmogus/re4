@@ -23,3 +23,6 @@ data/
 *.drs
 *.das
 *.sfd
+
+# test outputs
+port/tests/out/

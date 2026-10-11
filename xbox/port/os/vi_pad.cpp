@@ -29,6 +29,7 @@ typedef int BOOL;
 void re4_dvd_poll(void);
 void re4_os_poll(void);
 void re4_card_poll(void);
+void re4_audio_pump(void);
 
 // ---- VI -----------------------------------------------------------------------------------------
 typedef void (*VIRetraceCallback)(u32 retraceCount);
@@ -64,6 +65,7 @@ void VIWaitForRetrace(void)
     s_retrace++;
     re4_dvd_poll();
     re4_card_poll();
+    re4_audio_pump();
     re4_os_poll();
     if (s_post_cb) s_post_cb(s_retrace);
 }

@@ -61,7 +61,7 @@ void mpvumc_OneMakeMb(MPVUMC_WORK *wk, MPVUMC_OUTBLK *ob, Sint32 cbp)
 			}
 		} else {
 			for (y = 0; y < 8; y++) {
-				memcpy(d, p0, 8);
+				__builtin_memcpy(d, p0, 8);
 				p0 += 8; d += pitch;
 			}
 			res += 64;

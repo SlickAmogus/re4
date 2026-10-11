@@ -1,6 +1,6 @@
 # CT-15 — NV2A backend for the GX shim (local: needs Xbox hardware)
 
-**Status:** open · LOCAL ONLY (hardware; xemu cannot validate pbkit register combiner output reliably)
+**Status:** partial (first pass: xbox/port/gx/gx_nv2a.cpp; remaining list in progress/CT-15.md) · LOCAL ONLY (hardware; xemu cannot validate pbkit register combiner output reliably)
 
 ## Goal
 

@@ -1,6 +1,11 @@
 # CT-10 — Host audio backend over the AX shim
 
-**Status:** open · depends on CT-06
+**Status:** done (2026-10-11, local run; extended to the Xbox DirectSound sink) · depends on CT-06
+
+Result: `xbox/port/include/re4port/ax_shim.h`, `xbox/port/snd/ax_shim.cpp`, `xbox/port/snd/snd_soft.cpp`
+(software mixer; sinks DirectSound / SDL / null / capture), tests `xbox/port/tests/ax/`; the 5 ms frame is driven by
+`re4_audio_pump()` from `VIWaitForRetrace` instead of a thread; SYN/SEQ are silent stubs. See 03-AUDIO.md sections 6-8
+and `xbox/cloud-tasks/progress/CT-10.md`.
 
 ## Goal
 

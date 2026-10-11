@@ -19,7 +19,9 @@ PORT      = $(CURDIR)/port
 COMPAT    = $(CURDIR)/xbox_compat
 PREP      = $(CURDIR)/build/prep
 RE4_GAME ?= 0
-RE4_AUDIO_RXDK ?= 0
+# XDK DirectSound (hardware audio, 5.1): on when the proprietary objects are present (not in git;
+# copy them from a local VibeDuke3D checkout into xbox_compat/dsound_objs/)
+RE4_AUDIO_RXDK ?= $(if $(wildcard $(CURDIR)/xbox_compat/dsound_objs/dsapi.obj),1,0)
 PY       ?= python3
 
 # --- include paths (NXDK_CFLAGS so they precede nxdk's; explicit nxdk paths because MSYS2 make
@@ -125,7 +127,11 @@ $(MODULE_ALL_OBJS): CXXFLAGS += $(RE4_CXXFLAGS)
 main.exe: $(MODULE_LIBS)
 PORT_SRCS += $(PORT)/os/module_table.cpp $(PORT)/os/alias_thunks.cpp $(CURDIR)/build/link_stubs.c
 PORT_SRCS += $(PORT)/os/os_thread.cpp $(PORT)/os/os_misc.cpp $(PORT)/os/vi_pad.cpp $(PORT)/dvd/dvd_shim.cpp
-PORT_SRCS += $(PORT)/card/card_shim.cpp
+PORT_SRCS += $(PORT)/card/card_shim.cpp $(PORT)/gx/gx_nv2a.cpp
+PORT_SRCS += $(PORT)/snd/ax_shim.cpp $(PORT)/snd/snd_soft.cpp $(PORT)/snd/dspadpcm.c
+ifeq ($(RE4_AUDIO_RXDK),1)
+$(PORT)/snd/snd_soft.obj: CXXFLAGS += -DRE4_AUDIO_RXDK -I$(COMPAT)/rxdk_include
+endif
 else
 PORT_SRCS += $(PORT)/stub_game.cpp
 GAME_SRCS =

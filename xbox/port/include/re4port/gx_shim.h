@@ -114,6 +114,7 @@ typedef struct GxBackend {
 extern const GxBackend* gx_backend;      /* selected at init: gx_host_gl, gx_nv2a or gx_null */
 void gx_select_backend(const GxBackend* b);   /* also runs gx_init() the first time */
 
+extern const GxBackend gx_nv2a_backend;  /* Xbox: pbkit / register combiners (gx_nv2a.cpp, CT-15) */
 extern const GxBackend gx_null_backend;  /* records calls, draws nothing (tests, CT-08); see gx_null_log.h */
 
 /* State machine (gx_state.cpp). gx_init() puts the state at the SDK's power-on defaults (__GXInitGX);
