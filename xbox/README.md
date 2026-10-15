@@ -54,17 +54,20 @@ Claude Code cloud sessions install the 32-bit toolchain automatically through `.
 
 ## Running on an Xbox (boot test)
 
+From Git Bash (PowerShell's `bash` is WSL; use `"C:\Program Files\Gitinash.exe"`):
+
 ```sh
 bash xbox/build_xbox.sh RE4_GAME=1                         # bin/default.xbe
-cd xbox/tools && py -3 -m re4conv convert <disc1/files> <disc2/files> <converted>   # ~40 min, once
-bash xbox/package_xbox.sh <converted> <dist/RE4>           # default.xbe + data/files
+cd xbox/tools && py -3 -m re4conv convert <disc1/files> <disc2/files> <converted>   # once, ~20-40 min
+bash xbox/package_xbox.sh <converted> <out dir>            # default.xbe + re4.pak (one ~1.5 GB file)
 ```
 
-FTP the folder to the console, launch `default.xbe`, then read `re4.log` from the same folder. At this
-stage the log is the deliverable: it shows how far boot gets and which unimplemented SDK functions are
-hit first (`UNIMPLEMENTED function called from 0x...`; look the address up in `xbox/bin/re4.map`, written
-by every build).
-Nothing is drawn yet and there is no sound.
+Copy `default.xbe` and `re4.pak` into one folder on the console and launch `default.xbe`. If one large
+transfer keeps failing, use `--split 256` to get `re4.pak.000`, `.001`, ... and resend only a broken part.
+`re4.log` appears in the same folder (or `E:e4\` when that folder is read-only): it shows how far boot
+gets and which unimplemented functions are hit first (`UNIMPLEMENTED function called from 0x...`; look the
+address up in `xbox/bin/re4.map`, written by every build). The XBE also still accepts loose files in
+`datailes\...` (`--loose`), but the pack is preferred when both exist.
 
 ## Game data
 

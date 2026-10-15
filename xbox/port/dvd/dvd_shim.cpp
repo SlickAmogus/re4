@@ -142,8 +142,49 @@ s32 DVDConvertPathToEntrynum(const char* path)
     return -1;
 }
 
+// ---- data source: the RE4PAK1 pack (pak.cpp) when present, loose files otherwise ------------------
+int re4_pak_open(const char* base);
+int re4_pak_is_open(void);
+int re4_pak_find(const char* name);
+int re4_pak_size(int e);
+int re4_pak_read(int e, u32 ofs, void* dst, u32 len);
+
+static void pak_init(void)
+{
+    static int tried;
+    if (tried) return;
+    tried = 1;
+    char p[300];
+#ifdef RE4_XBOX
+    // the pack sits next to the XBE (D: = the XBE's folder), or inside the data folder
+    if (re4_pak_open("D:\\re4.pak")) return;
+    snprintf(p, sizeof p, "%s\\re4.pak", s_root);
+#else
+    snprintf(p, sizeof p, "%s/re4.pak", s_root);
+#endif
+    re4_pak_open(p);
+}
+
+// pack entry of a table entry, honouring the disc-2 preference
+static int pak_entry(int entry)
+{
+    char name[300];
+    if (s_disc_index == 1) {
+        snprintf(name, sizeof name, "files_disc2/%s", s_entry_path[entry]);
+        int e = re4_pak_find(name);
+        if (e >= 0) return e;
+    }
+    snprintf(name, sizeof name, "files/%s", s_entry_path[entry]);
+    return re4_pak_find(name);
+}
+
 static int file_size(int entry)
 {
+    pak_init();
+    if (re4_pak_is_open()) {
+        int e = pak_entry(entry);
+        return e >= 0 ? re4_pak_size(e) : -1;
+    }
     char p[512];
     full_path(entry, p, sizeof p);
     int fd = _open(p, O_RDONLY | O_BINARY);
@@ -151,6 +192,24 @@ static int file_size(int entry)
     int size = (int) _lseek(fd, 0, SEEK_END);
     _close(fd);
     return size;
+}
+
+// bytes read, or -1 when the file is missing
+static int file_read(int entry, s32 offset, void* addr, s32 length)
+{
+    pak_init();
+    if (re4_pak_is_open()) {
+        int e = pak_entry(entry);
+        return e >= 0 ? re4_pak_read(e, (u32) offset, addr, (u32) length) : -1;
+    }
+    char p[512];
+    full_path(entry, p, sizeof p);
+    int fd = _open(p, O_RDONLY | O_BINARY);
+    if (fd < 0) return -1;
+    _lseek(fd, offset, SEEK_SET);
+    int n = _read(fd, addr, (unsigned) length);
+    _close(fd);
+    return n;
 }
 
 int DVDFastOpen(s32 entry, DVDFileInfo* fi)
@@ -223,16 +282,11 @@ int DVDReadAsyncPrio(DVDFileInfo* fi, void* addr, s32 length, s32 offset, DVDCal
     fi->cb.length = (u32) length;
     fi->cb.transferredSize = 0;
     s32 got = DVD_RESULT_FATAL;
-    int fd = _open(p, O_RDONLY | O_BINARY);
-    if (fd >= 0) {
-        _lseek(fd, offset, SEEK_SET);
-        // the game reads 32-byte rounded lengths: the tail past EOF stays as it was (zero on hardware)
-        int n = _read(fd, addr, (unsigned) length);
-        _close(fd);
-        if (n >= 0) {
-            if (n < length) memset((u8*) addr + n, 0, (unsigned) (length - n));
-            got = length;
-        }
+    // the game reads 32-byte rounded lengths: the tail past EOF reads as zero (as on hardware)
+    int n = file_read((int) fi->startAddr, offset, addr, length);
+    if (n >= 0) {
+        if (n < length) memset((u8*) addr + n, 0, (unsigned) (length - n));
+        got = length;
     }
     if (got < 0) re4_log("dvd: read failed %s ofs 0x%x len 0x%x\n", p, offset, length);
     fi->cb.transferredSize = got > 0 ? (u32) got : 0;

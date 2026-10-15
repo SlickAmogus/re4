@@ -140,7 +140,7 @@ $(MODULE_ALL_OBJS): CFLAGS += $(RE4_CFLAGS)
 $(MODULE_ALL_OBJS): CXXFLAGS += $(RE4_CXXFLAGS)
 main.exe: $(MODULE_LIBS)
 PORT_SRCS += $(PORT)/os/module_table.cpp $(PORT)/os/alias_thunks.cpp $(CURDIR)/build/link_stubs.c
-PORT_SRCS += $(PORT)/os/os_thread.cpp $(PORT)/os/os_misc.cpp $(PORT)/os/vi_pad.cpp $(PORT)/dvd/dvd_shim.cpp
+PORT_SRCS += $(PORT)/os/os_thread.cpp $(PORT)/os/os_misc.cpp $(PORT)/os/vi_pad.cpp $(PORT)/dvd/dvd_shim.cpp $(PORT)/dvd/pak.cpp
 PORT_SRCS += $(PORT)/card/card_shim.cpp $(PORT)/gx/gx_nv2a.cpp
 PORT_SRCS += $(PORT)/snd/ax_shim.cpp $(PORT)/snd/snd_soft.cpp $(PORT)/snd/dspadpcm.c
 ifeq ($(RE4_AUDIO_RXDK),1)
