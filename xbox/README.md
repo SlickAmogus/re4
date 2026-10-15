@@ -54,7 +54,7 @@ Claude Code cloud sessions install the 32-bit toolchain automatically through `.
 
 ## Running on an Xbox (boot test)
 
-From Git Bash (PowerShell's `bash` is WSL; use `"C:\Program Files\Gitinash.exe"`):
+From Git Bash (PowerShell's `bash` is WSL; use `"C:\Program Files\Git\bin\bash.exe"`):
 
 ```sh
 bash xbox/build_xbox.sh RE4_GAME=1                         # bin/default.xbe
@@ -64,7 +64,8 @@ bash xbox/package_xbox.sh <converted> <out dir>            # default.xbe + re4.p
 
 Copy `default.xbe` and `re4.pak` into one folder on the console and launch `default.xbe`. If one large
 transfer keeps failing, use `--split 256` to get `re4.pak.000`, `.001`, ... and resend only a broken part.
-`re4.log` appears in the same folder (or `E:e4\` when that folder is read-only): it shows how far boot
+`re4.log` appears in the same folder (or `E:
+e4\` when that folder is read-only): it shows how far boot
 gets and which unimplemented functions are hit first (`UNIMPLEMENTED function called from 0x...`; look the
 address up in `xbox/bin/re4.map`, written by every build). The XBE also still accepts loose files in
 `datailes\...` (`--loose`), but the pack is preferred when both exist.
