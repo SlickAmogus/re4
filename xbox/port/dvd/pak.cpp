@@ -15,6 +15,7 @@
 #include <zlib.h>
 #ifdef RE4_XBOX
 #include <windows.h>
+#include <nxdk/mount.h>
 #else
 #include <fcntl.h>
 #include <unistd.h>
@@ -60,13 +61,51 @@ static void vol_name(int v, char* out, unsigned n)
     else snprintf(out, n, "%s", s_base);
 }
 
+#ifdef RE4_XBOX
+// Parts of a split pack may be spread over several partitions (e.g. the 750 MB cache drives X:, Y:, Z:
+// when E: is full): a part missing next to the XBE is looked for in <drive>:\re4\ and <drive>:\ .
+static void mount_drives(void)
+{
+    static int done;
+    if (done) return;
+    done = 1;
+    static const struct { char letter; const char* dev; } k_parts[] = {
+        { 'E', "\\Device\\Harddisk0\\Partition1\\" }, { 'X', "\\Device\\Harddisk0\\Partition3\\" },
+        { 'Y', "\\Device\\Harddisk0\\Partition4\\" }, { 'Z', "\\Device\\Harddisk0\\Partition5\\" },
+        { 'F', "\\Device\\Harddisk0\\Partition6\\" }, { 'G', "\\Device\\Harddisk0\\Partition7\\" },
+    };
+    for (unsigned i = 0; i < sizeof k_parts / sizeof k_parts[0]; i++) {
+        if (!nxIsDriveMounted(k_parts[i].letter)) nxMountDrive(k_parts[i].letter, k_parts[i].dev);
+    }
+}
+
+static HANDLE open_ro(const char* name)
+{
+    return CreateFileA(name, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+}
+#endif
+
 static int vol_open(int v)
 {
     char name[280];
     vol_name(v, name, sizeof name);
 #ifdef RE4_XBOX
     if (s_vol[v] && s_vol[v] != INVALID_HANDLE_VALUE) return 1;
-    s_vol[v] = CreateFileA(name, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+    s_vol[v] = open_ro(name);
+    if (s_vol[v] == INVALID_HANDLE_VALUE && s_split) {
+        mount_drives();
+        static const char k_drives[] = "XYZFGE";
+        for (const char* d = k_drives; *d && s_vol[v] == INVALID_HANDLE_VALUE; d++) {
+            snprintf(name, sizeof name, "%c:\\re4\\re4.pak.%03d", *d, v);
+            s_vol[v] = open_ro(name);
+            if (s_vol[v] == INVALID_HANDLE_VALUE) {
+                snprintf(name, sizeof name, "%c:\\re4.pak.%03d", *d, v);
+                s_vol[v] = open_ro(name);
+            }
+        }
+        if (s_vol[v] != INVALID_HANDLE_VALUE) re4_log("pak: part %03d at %s\n", v, name);
+        else if (v) re4_log("pak: part re4.pak.%03d not found next to the XBE or in <drive>:\\re4\\\n", v);
+    }
     return s_vol[v] != INVALID_HANDLE_VALUE;
 #else
     if (s_vol[v] > 0) return 1;
@@ -125,7 +164,22 @@ int re4_pak_open(const char* base)
         s_split = 1;
         if (!vol_open(0)) return 0;
     }
-    if (!vol_pread(0, 0, &s_hdr, sizeof s_hdr) || memcmp(s_hdr.magic, "RE4PAK1", 8) != 0 || s_hdr.version != 1) {
+    int ok = vol_pread(0, 0, &s_hdr, sizeof s_hdr) && memcmp(s_hdr.magic, "RE4PAK1", 8) == 0 && s_hdr.version == 1;
+    if (!ok && !s_split) {
+        // a half-uploaded single re4.pak (its header is written last): fall back to split parts
+        re4_log("pak: %s is incomplete, trying %s.000..\n", base, base);
+#ifdef RE4_XBOX
+        CloseHandle(s_vol[0]);
+        s_vol[0] = 0;
+#else
+        close(s_vol[0]);
+        s_vol[0] = 0;
+#endif
+        s_split = 1;
+        ok = vol_open(0) && vol_pread(0, 0, &s_hdr, sizeof s_hdr) && memcmp(s_hdr.magic, "RE4PAK1", 8) == 0 &&
+             s_hdr.version == 1;
+    }
+    if (!ok) {
         re4_log("pak: %s is not an RE4PAK1 file\n", base);
         return 0;
     }
